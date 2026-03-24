@@ -1,0 +1,6 @@
+chroma_db/
+*.jsonl
+tags
+__pycache__/
+*.pyc
+.env
