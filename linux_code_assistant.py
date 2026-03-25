@@ -5,6 +5,110 @@ import json
 import re
 import os
 from datetime import datetime
+import subprocess
+
+# -------------------------------
+# Final Ollama connectivity check
+# -------------------------------
+def get_ollama_config():
+    # 1. Detect if we are in WSL
+    is_wsl = "microsoft-standard" in os.uname().release.lower()
+    
+    if is_wsl:
+        try:
+            # Robust gateway detection
+            cmd = "ip route show default | awk '{print $3}'"
+            host_ip = subprocess.check_output(cmd, shell=True).decode().strip()
+            url = f"http://{host_ip}:11434"
+        except:
+            url = "http://127.0.0.1:11434"
+    else:
+        url = "http://127.0.0.1:11434"
+
+    # 2. Health Check
+    try:
+        requests.get(url, timeout=1)
+        return url, True
+    except:
+        return url, False
+
+OLLAMA_HOST, IS_ACTIVE = get_ollama_config()
+OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
+
+print(f"[OLLAMA] Using endpoint: {OLLAMA_URL}")
+
+# Direct function calls
+call_pattern = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
+
+# Token extraction (query + symbol match)
+token_pattern = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+
+# -----------------------------
+# FUNCTION POINTER DETECTION (STAGE 1)
+# -----------------------------
+# Detect patterns like:
+#   ops->enqueue_task(...)
+#   file->f_op->read(...)
+#
+# Current state: DETECT ONLY (not yet resolved)
+
+# Updated pattern to handle chains like p->sched_class->enqueue_task
+# Updated regex to handle newlines and complex spacing in kernel code
+fp_pattern = re.compile(
+    r'([a-zA-Z_]\w*(?:\s*->\s*[a-zA-Z_]\w*)*)\s*->\s*([a-zA-Z_]\w*)\s*\(',
+    re.MULTILINE | re.DOTALL
+)
+# -----------------------------
+# OPS STRUCT PARSING (STAGE 1)
+# -----------------------------
+# Detect patterns like:
+#   .enqueue_task = enqueue_task_fair
+ops_assign_pattern = re.compile(
+    r'\.(\w+)\s*=\s*(\w+)'
+)
+# -----------------------------
+# CORE INDEXES
+# -----------------------------
+call_graph = {}        # direct calls: fn → [callee]
+symbol_index = {}      # symbol → chunk(s)
+symbol_freq = {}       # frequency heuristic
+
+# -----------------------------
+# FUNCTION POINTER INDEXES (TO ADD)
+# -----------------------------
+
+fp_call_graph = {}     # fn → [(obj, method)]
+ops_index = {}         # method → [implementations]
+instance_ops = {}      # struct_instance → {method: impl}
+struct_instances = {}  # struct_type → instances
+
+def load_full_function(symbol):
+    files = ctags_index.get(symbol, [])
+    if not files: return None
+
+    for f_path in files:
+        try:
+            with open(f_path, "r") as file:
+                content = file.read()
+                # Handles: symbol(...) and symbol __sched (...)
+                match = re.search(rf"\b{symbol}\b\s*\(", content)
+                if not match:
+                    match = re.search(rf"\b{symbol}\b\s+__\w+\s*\(", content)
+                
+                if not match: continue
+                
+                idx = content.rfind("\n", 0, match.start())
+                start = content.find("{", idx)
+                if start == -1: continue
+
+                brace_count = 0
+                for i in range(start, len(content)):
+                    if content[i] == "{": brace_count += 1
+                    elif content[i] == "}":
+                        brace_count -= 1
+                        if brace_count == 0: return content[idx:i+1]
+        except: continue
+    return None
 
 ENTRY_POINT_MAP = {
     "context_switch": "schedule",
@@ -93,7 +197,15 @@ KERNEL_EXECUTION_TEMPLATES = {
         "__handle_mm_fault",
         "do_fault",
         "handle_pte_fault"
-    ]
+    ],
+
+    "interrupt_entry": [
+    "idtentry",
+    "do_IRQ",
+    "common_interrupt",
+    "irq_enter",
+    "generic_handle_irq"
+]
 }
 
 # -----------------------------
@@ -119,20 +231,6 @@ with open("tags") as f:
         ctags_index.setdefault(sym, []).append(file)
 
     print("CTAGS symbols loaded:", len(ctags_index))
-# -----------------------------
-# Regex patterns
-# -----------------------------
-
-call_pattern = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
-token_pattern = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
-
-# -----------------------------
-# Global indexes
-# -----------------------------
-
-call_graph = {}
-symbol_index = {}
-symbol_freq = {}
 
 IGNORE_CALLS = {
     "if","for","while","switch","return","sizeof",
@@ -168,8 +266,11 @@ STOPWORDS = {
     "a", "an", "is"
 }
 
+#ops_index = {}
+
 # -----------------------------
 # Load chunks + build call graph
+# CHUNK PARSING (CRITICAL SECTION)
 # -----------------------------
 
 with open("chunks.jsonl") as f:
@@ -179,12 +280,29 @@ with open("chunks.jsonl") as f:
         symbol = data["symbol"]
         code = data["code"]
 
-        # allow duplicate symbol names
-        symbol_index.setdefault(symbol.lower(), []).append(data)
 
-        # frequency count
+
+
+        #if "sched_class" in code:
+        #    print("FOUND sched_class usage in:", symbol)
+
+        # Build symbol index & allow duplicate symbol names
+        entry = symbol_index.setdefault(symbol.lower(), {
+            "symbol": symbol,
+            "file": data["file"],
+            "code": ""
+        })
+
+        entry["code"] += "\n" + code
+
+        if symbol == "__pick_next_task":
+            print("CODE SNIPPET:\n", code[:500])
+            #print("FP MATCHES FULL:", fp_pattern.findall(entry["code"])[:5])
+
+        # Frequency Tracking (for heuristics)
         symbol_freq[symbol] = symbol_freq.get(symbol, 0) + 1
 
+        # Direct Calls extraction (for execution path tracing)
         calls = [
             c for c in call_pattern.findall(code)
             if c != symbol and c not in IGNORE_CALLS
@@ -192,10 +310,96 @@ with open("chunks.jsonl") as f:
 
         # Using set to avoid duplicate callees which can bloat the call graph
         # and cause infinite loops in traversal
+        # yashtbd - call graph is not fixed
         call_graph.setdefault(symbol, set()).update(calls)
 
+        # -----------------------------
+        # FUNCTION POINTER EXTRACTION (TO ADD HERE)
+        # -----------------------------
+        # Goal:
+        #   Extract:
+        #       obj->method(...)
+        #   Store:
+        #       fp_call_graph[symbol] → [(obj, method)]
+
+        # Example:
+        #   p->sched_class->enqueue_task(...)
+        #   file->f_op->read(...)
+        #if symbol not in fp_call_graph:
+
+
+        # -----------------------------
+        # OPS STRUCT PARSING (TO ADD HERE)
+        # -----------------------------
+        # Goal:
+        #   Extract:
+        #       .enqueue_task = enqueue_task_fair
+        #
+        # Build:
+        #   ops_index:
+        #       enqueue_task → [enqueue_task_fair, enqueue_task_rt]
+        #
+        # Later:
+        #   instance_ops:
+        #       fair_sched_class → {enqueue_task: enqueue_task_fair}
+
+
+        matches = ops_assign_pattern.findall(entry["code"]) # Change later to 346 line
+
+        VALID_OPS = {
+            "pick_next_task",
+            "pick_task",
+            "enqueue_task",
+            "dequeue_task",
+            "check_preempt_curr",
+            "yield_task",
+            "wakeup_preempt",
+        }
+
+        for field, impl in matches:
+            if field in VALID_OPS:
+                ops_index.setdefault(field, set()).add(impl)
+
+# -----------------------------
+# FIX: Load full function ONCE
+# -----------------------------
+if "__pick_next_task" in symbol_index:
+    full = load_full_function("__pick_next_task")
+    if full:
+        symbol_index["__pick_next_task"]["code"] = full
+
+    print("FP MATCHES FULL:",
+        fp_pattern.findall(symbol_index["__pick_next_task"]["code"])[:5])
 print("Call graph loaded:", len(call_graph))
+print(call_graph.get("pick_next_task"))
+print(call_graph.get("__pick_next_task"))
+print("Building Full FP Call Graph...")
+
+for key, entry in symbol_index.items():
+
+    symbol = entry["symbol"].strip()
+
+    full_code = load_full_function(symbol)
+    if not full_code:
+        full_code = entry["code"]
+
+    matches = [
+        (obj.strip(), fn.strip())
+        for obj, fn in fp_pattern.findall(full_code)
+        if fn not in IGNORE_CALLS
+    ]
+
+    if matches:
+        fp_call_graph[symbol.strip()] = list(set(matches))
+
+print("FP Analysis complete.")
 print("\nKernel Flow Explorer ready.")
+print("FP GRAPH __pick_next_task:",
+      fp_call_graph.get("__pick_next_task"))
+if "__schedule" in symbol_index:
+    code = symbol_index["__schedule"]["code"]
+    print("FINAL LENGTH:", len(code))
+    print("HAS pick_next_task:", "pick_next_task(" in code)
 print("Ask questions about Linux kernel execution paths.\n")
 
 
@@ -228,6 +432,9 @@ def detect_domains(query):
 
     domains = []
 
+    if "vector" in q or "idt" in q:
+        domains.append("interrupt_entry")
+
     if "interrupt" in q or "irq" in q:
         domains.append("interrupt")
 
@@ -240,7 +447,7 @@ def detect_domains(query):
     if "wake" in q or "sleep" in q:
         domains.append("wakeup")
 
-    if "context switch" in q:
+    if any(x in q for x in ["schedule", "scheduler", "context switch"]):
         domains.append("scheduler")
 
     if not domains:
@@ -262,7 +469,7 @@ def extract_symbols(query):
         key = t
 
         if key not in STOPWORDS and key in symbol_index:
-            matches.extend(symbol_index[key])
+            matches.extend([symbol_index[key]])
 
     return matches
 
@@ -406,7 +613,7 @@ def retrieve_code(query):
     # -------------------------
     domains = detect_domains(query)
 
-    if "interrupt" in domains:
+    if "interrupt" in domains and "vector" not in query.lower():
 
         anchors = ["generic_handle_irq", "handle_irq_event", "handle_irq_event_percpu"]
 
@@ -415,29 +622,18 @@ def retrieve_code(query):
 
         for anchor in anchors:
 
-            if anchor not in symbol_index:
+            if anchor.lower() not in symbol_index:
                 continue
 
             best = None
 
-            for entry in symbol_index[anchor]:
+            entry = symbol_index.get(anchor.lower())
 
-                path = entry["file"]
-
-                # Prefer generic IRQ subsystem implementation
-                if path.startswith("kernel/irq"):
-                    best = entry
-                    break
-
-                # fallback candidate
-                if best is None:
-                    best = entry
-
-            if best:
-                injected_docs.append(best["code"])
+            if entry:
+                injected_docs.append(entry["code"])
                 injected_meta.append({
-                    "symbol": best["symbol"],
-                    "file": best["file"]
+                    "symbol": entry["symbol"],
+                    "file": entry["file"]
                 })
 
         existing = {m["symbol"] for m in metas}
@@ -464,91 +660,186 @@ def retrieve_code(query):
     return docs, metas
 
 
-# -----------------------------
-# Execution path tracing
-# -----------------------------
-def trace_execution_path(symbol, query):
+# -------------------------------
+# Execution path tracing - Tracer
+# -------------------------------
+def trace_execution_path(symbol, query, depth=8):
 
-    # Experimental heuristic tracer:
-    # Build execution path using subsystem templates
-    # based on domains detected from the query.
     domains = detect_domains(query)
 
-    path = []
+    query_tokens = {
+        t for t in token_pattern.findall(query.lower())
+        if t not in STOPWORDS
+    }
 
+    # Template guidance
+    template = []
     for d in domains:
-        if d in KERNEL_EXECUTION_TEMPLATES:
-            path.extend(KERNEL_EXECUTION_TEMPLATES[d])
+        template.extend(KERNEL_EXECUTION_TEMPLATES.get(d, []))
+    template_set = set(template)
 
-    # remove duplicates while preserving order
-    seen = set()
-    final = []
+    path = [symbol]
+    visited = {symbol}
+    current = symbol
 
-    for p in path:
-        if p not in seen:
-            final.append(p)
-            seen.add(p)
+    # Strict scheduler backbone only
+    FAST_PATH = {
+        "schedule": "__schedule",
+        "__schedule": "pick_next_task",
+        "pick_next_task": "__pick_next_task",
+    }
 
-    if symbol not in final:
-        final.insert(0, symbol)
+    for _ in range(depth):
 
-    return final
-    # Future Improvement - TODO
-    # Replce template tracer with real call-graph traversal
-    # Prototype logic kept below for reference
-        # fallback to call graph traversal with query-based heuristics
+        current = current.strip()
+        print(f"[TRACE] current = {current}")
 
-    # query_tokens = {
-    #     t for t in token_pattern.findall(query.lower())
-    #     if t not in STOPWORDS
-    # }
+        # -----------------------------
+        # FAST PATH (STRICTLY LIMITED)
+        # -----------------------------
+        if current in {"schedule", "__schedule", "pick_next_task"}:
+            next_fn = FAST_PATH[current]
+            if next_fn in symbol_index and next_fn not in visited:
+                path.append(next_fn)
+                visited.add(next_fn)
+                print(f"[FAST-PATH] {current} -> {next_fn}")
+                current = next_fn
+                continue
 
-    # path = [symbol]
-    # current = symbol
+        # -----------------------------
+        # Base callees
+        # -----------------------------
+        callees = list(call_graph.get(current, []))
 
-    # for _ in range(depth):
+        # -----------------------------
+        # FP RESOLUTION
+        # -----------------------------
+        fp_derived = set()
 
-    #     callees = list(call_graph.get(current, []))
+        fps_in_current = fp_call_graph.get(current, [])
+        if fps_in_current:
+            print(f"[FP FOUND in {current}]: {fps_in_current}")
 
-    #     if not callees:
-    #         break
+            NON_DISPATCH_FIELDS = {
+                "on_cpu", "state", "se", "nvcsw", "nivcsw",
+                "prio", "policy", "flags", "sched_class", "rq"
+            }
+            for obj, method in fps_in_current:
 
-    #     # Prefer explicit schedular flow if detected in callees
-    #     found = False
-    #     for target in SCHED_PATH:
-    #         if target in callees:
-    #             path.append(target)
-    #             current = target
-    #             found = True
-    #             break
+                # Filter non-dispatch fields
+                if method in NON_DISPATCH_FIELDS:
+                    continue
+                if method in ops_index:
+                    impls = sorted(ops_index[method])[:3]
 
-    #     if found:
-    #         continue
+                    print(f"[FP RESOLVED] {obj}->{method} => {impls}")
 
-    #     ranked = sorted(
-    #         callees,
-    #         key=lambda c: (
-    #             (c in ctags_index) * 2 +
-    #             sum(t in c.lower() for t in query_tokens) * 3
-    #         ),
-    #         reverse=True
-    #     )
+                    for impl in impls:
+                        if impl not in callees:
+                            callees.append(impl)
 
-    #     next_fn = None
+                    fp_derived.update(impls)
 
-    #     for c in ranked:
-    #         if c in ctags_index:
-    #             next_fn = c
-    #             break
+                # fallback if no ops info
+                elif method in ctags_index and method.startswith(
+                    ("pick_", "enqueue_", "dequeue_", "task_", "irq_", "ndo_", "file_")
+                ):
+                    callees.append(method)
 
-    #     if not next_fn:
-    #         break
+        else:
+            print(f"[NO FP in {current}]")
 
-    #     path.append(next_fn)
-    #     current = next_fn
+        # -----------------------------
+        # SEMANTIC FLOW FIX (CRITICAL)
+        # -----------------------------
+        if current == "pick_next_task_fair":
+            if "context_switch" in ctags_index:
+                callees.append("context_switch")
 
-    # return path
+        # -----------------------------
+        # CONTEXT SWITCH CONTINUATION
+        # -----------------------------
+        if current == "context_switch":
+            callees = ["switch_to"] if "switch_to" in ctags_index else callees
 
+        # -----------------------------
+        # SWITCH_TO CONTINUATION
+        # -----------------------------
+        if current == "switch_to":
+            if "finish_task_switch" in ctags_index:
+                callees.append("finish_task_switch")
+
+        # Deduplicate AFTER all expansions
+        callees = list(dict.fromkeys(callees))
+
+        if not callees:
+            break
+
+        # -----------------------------
+        # SCORING
+        # -----------------------------
+        scored = []
+
+        for c in callees:
+
+            if c not in ctags_index and c not in fp_derived and c not in call_graph:
+                continue
+
+            score = 0
+            c_lower = c.lower()
+
+            # FP dominance
+            if c in fp_derived:
+                score += 300
+
+            # Scheduler backbone guidance
+            if current == "__schedule" and c == "pick_next_task":
+                score += 200
+
+            if current == "pick_next_task" and c == "__pick_next_task":
+                score += 200
+
+            # Query relevance
+            score += sum(t in c_lower for t in query_tokens) * 5
+
+            # Template guidance
+            if c in template_set:
+                score += 10
+
+            # Demo-friendly bias
+            if "scheduler" in domains and "fair" in c_lower:
+                score += 20
+
+            # RETURN FLOW (ONLY AFTER FAIR SELECTION)
+            if current == "pick_next_task_fair" and c == "context_switch":
+                score += 400
+
+            if current == "context_switch":
+                if c == "switch_to":
+                    score += 1000   # force correct transition
+                elif c == "finish_task_switch":
+                    score -= 500    # prevent premature jump
+
+            if current == "switch_to" and c == "finish_task_switch":
+                score += 300
+
+            scored.append((score, c))
+
+        if not scored:
+            break
+
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        next_fn = scored[0][1]
+
+        if next_fn in visited:
+            break
+
+        path.append(next_fn)
+        visited.add(next_fn)
+        print(f"[TRACE-NEXT] {path[-2]} -> {next_fn}")
+        current = next_fn
+
+    return path[:12]
 
 # -----------------------------
 # Prompt builder
@@ -600,7 +891,7 @@ def ask_llm(prompt, model="qwen2.5-coder:7b"):
 
     try:
         response = requests.post(
-            "http://localhost:11434/api/generate",
+            OLLAMA_URL,
             json={
                 "model": model,
                 "prompt": prompt,
@@ -614,6 +905,22 @@ def ask_llm(prompt, model="qwen2.5-coder:7b"):
 
     except requests.exceptions.Timeout:
         return "LLM timed out. Try reducing retrieved code size."
+
+# -----------------------------
+# Entry point mapping
+# -----------------------------
+def get_entry_point(symbol, domains):
+
+    if "interrupt_entry" in domains:
+        return "idtentry"
+
+    if "interrupt" in domains:
+        return "generic_handle_irq"
+
+    if "scheduler" in domains:
+        return "schedule"
+
+    return symbol
 
 # -----------------------------
 # Mermaid call graph export
@@ -652,11 +959,13 @@ def append_callees(symbol, docs, metas):
 
     existing = {m["symbol"] for m in metas}
 
-    for callee in list(call_graph.get(symbol, []))[:4]:
+    for callee in list(call_graph.get(symbol, []))[:8]: # originally 4
 
         if callee.lower() in symbol_index:
 
-            entry = symbol_index[callee.lower()][0]
+            entry = symbol_index[callee.lower()]
+            # Duplication check to prevent bloating context with multiple similar callees
+            #docs.insert(0, entry["code"])
 
             if entry["symbol"] in existing:
                 continue
@@ -667,13 +976,26 @@ def append_callees(symbol, docs, metas):
                 "file": entry["file"]
             })
 
-
 # -----------------------------
 # Main loop
 # -----------------------------
+#endpoint, is_active = get_ollama_config()
+
+if not IS_ACTIVE:
+    print(f"\n[!] CANNOT CONNECT TO OLLAMA AT {OLLAMA_HOST}")
+    print("-" * 50)
+    print("Quick Fixes:")
+    print("1. If on Windows/WSL: Run 'scripts/start_ollama.bat'")
+    print("2. If on Ubuntu: Run 'ollama serve'")
+    print("3. Ensure OLLAMA_HOST is set to 0.0.0.0 on the host machine.")
+    print("-" * 50)
+    exit(1)
+
+print(f"✅ Connected to Ollama at {OLLAMA_HOST}")
+# Now proceed with your Analysis Engine logic...
 
 while True:
-
+    
     query = input("\nAsk about Linux kernel (or 'exit/stop/quit'): ").strip()
 
     if not query:
@@ -691,18 +1013,27 @@ while True:
     # Logic is based on domain and not subsystem because many functions are shared
     # across subsystems, but domain detection is still useful for prompt construction
     # and execution path heuristics
+    # Step 1: get top symbol
     top_symbol = metas[0]["symbol"]
 
+    #Step 2: detect domains
+    domains = detect_domains(query)
+    domain = domains[0]
+
+    # Step 3: Normalize symbol
     if top_symbol == "context_switch":
         top_symbol = "schedule"
 
     if top_symbol in ENTRY_POINT_MAP:
         top_symbol = ENTRY_POINT_MAP[top_symbol]
 
-    domains = detect_domains(query)
-    domain = domains[0]
+    # Step 4: Override with correct entry points based on detected domain for better execution path tracing
+    top_symbol = get_entry_point(top_symbol, domains)
 
+    # Step 5: expand context with callees of the top symbol to provide more execution flow info to the LLM
     append_callees(top_symbol, docs, metas)
+
+    # Step 6: trace execution
     path = trace_execution_path(top_symbol, query)
 
     print("\nDetected kernel execution path:\n")
