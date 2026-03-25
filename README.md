@@ -258,11 +258,27 @@ Notes:
 
 # Future Work
 
+### Core Kernel Understanding
 - function pointer tracing
 - real callgraph integration (clang / cflow)
 - runtime tracing (ftrace, eBPF)
-- graph-based RAG improvements
+
+### RAG Improvements
+- graph-based RAG
+- multi-source RAG (code + docs)
+
+### Intelligence Layer
+- subsystem-aware reasoning (USB, networking, DRM, block layer)
+
+### Developer Experience
+- session history & exploration
+- better visualization (layered diagrams, subsystem boundaries)
+
+### Platform & Model
 - native Windows support
+- auto-select best local LLM (optional)
+- plug-and-play model layer
+
 
 ---
 
