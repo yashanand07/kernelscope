@@ -298,6 +298,20 @@ The goal:
 
 ---
 
+## Roadmap
+
+Planned improvements and future exploration areas:
+
+- Persistent semantic graph caching
+- Domain-aware execution entrypoint selection
+- Expanded function-pointer dispatch reconstruction
+- Wakeup, IRQ, and memory-management execution tracing
+- Semantic Mermaid graph visualization
+- Interactive execution-path exploration
+- Path-conditioned retrieval for improved LLM grounding
+
+---
+
 # License
 
 This project is licensed under the MIT License.

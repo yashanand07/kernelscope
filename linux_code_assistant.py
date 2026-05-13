@@ -10,10 +10,12 @@ import requests
 import json
 import re
 import os
+import pickle
 import subprocess
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
 import chromadb
+import time
 
 # =================================================================
 # 1. NETWORKING & OLLAMA CONFIGURATION
@@ -36,7 +38,8 @@ def get_ollama_config():
 
     # Perform a health check to see if the LLM server is reachable
     try:
-        requests.get(url, timeout=1)
+        #requests.get(url, timeout=1)
+        requests.get(f"{url}/api/tags", timeout=1)
         return url, True
     except requests.exceptions.RequestException:
         return url, False
@@ -45,6 +48,7 @@ OLLAMA_HOST, IS_ACTIVE = get_ollama_config()
 OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
 
 print(f"[OLLAMA] Using endpoint: {OLLAMA_URL}")
+
 # =================================================================
 # 2. CORE REGEX PATTERNS
 # =================================================================
@@ -91,8 +95,295 @@ symbol_freq = {}       # frequency heuristic
 
 fp_call_graph = {}     # fn → [(obj, method)]
 ops_index = {}         # method → [implementations]
-instance_ops = {}      # struct_instance → {method: impl}
-struct_instances = {}  # struct_type → instances
+#instance_ops = {}      # struct_instance → {method: impl}
+#struct_instances = {}  # struct_type → instances
+
+# -----------------------------
+# CACHING LOGIC for faster iteration
+# -----------------------------
+
+CACHE_DIR = "semantic_cache"
+
+CALL_GRAPH_FILE = os.path.join(CACHE_DIR, "call_graph.json")
+FP_GRAPH_FILE = os.path.join(CACHE_DIR, "fp_call_graph.json")
+SYMBOL_INDEX_FILE = os.path.join(CACHE_DIR, "symbol_index.pkl")
+METADATA_FILE = os.path.join(CACHE_DIR, "metadata.json")
+OPS_INDEX_FILE = os.path.join(CACHE_DIR, "ops_index.json")
+
+# -----------------------------
+# Linux Kernel commit tracking - MetaData Helpers
+# -----------------------------
+
+def get_kernel_commit():
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=LINUX_ROOT
+        ).decode().strip()
+    except:
+        return "unknown"
+
+def build_metadata():
+    return {
+        "kernel_commit": get_kernel_commit(),
+        "generated_at": datetime.now().isoformat(),
+        "cache_version": 1,
+    }
+
+# -----------------------------
+# Semantic cache saving - to avoid repeated expensive parsing
+# -----------------------------
+
+# -----------------------------
+# Semantic cache saving
+# Avoid repeated expensive kernel parsing
+# -----------------------------
+
+def save_semantic_cache(
+    call_graph,
+    fp_call_graph,
+    symbol_index,
+    ops_index
+):
+    start = time.time()
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+    # -----------------------------
+    # JSON-safe conversions
+    # -----------------------------
+
+    serializable_call_graph = {
+        k: list(v)
+        for k, v in call_graph.items()
+    }
+
+    serializable_fp_graph = {
+        k: v
+        for k, v in fp_call_graph.items()
+    }
+
+    serializable_ops_index = {
+        k: list(v)
+        for k, v in ops_index.items()
+    }
+
+    # -----------------------------
+    # Save semantic graphs
+    # -----------------------------
+
+    with open(CALL_GRAPH_FILE, "w") as f:
+        json.dump(serializable_call_graph, f, indent=2)
+
+    with open(FP_GRAPH_FILE, "w") as f:
+        json.dump(serializable_fp_graph, f, indent=2)
+
+    with open(OPS_INDEX_FILE, "w") as f:
+        json.dump(serializable_ops_index, f, indent=2)
+
+    # -----------------------------
+    # Save symbol index
+    # -----------------------------
+
+    with open(SYMBOL_INDEX_FILE, "wb") as f:
+        pickle.dump(symbol_index, f)
+
+    # -----------------------------
+    # Save metadata
+    # -----------------------------
+
+    with open(METADATA_FILE, "w") as f:
+        json.dump(build_metadata(), f, indent=2)
+
+    print(f"✅ Semantic cache saved in {time.time() - start:.2f} seconds")
+
+# -----------------------------
+# Semantic cache loading
+# -----------------------------
+
+def load_semantic_cache():
+
+    # -----------------------------
+    # Load semantic graph artifacts
+    # -----------------------------
+
+    with open(CALL_GRAPH_FILE) as f:
+        call_graph = json.load(f)
+
+    with open(FP_GRAPH_FILE) as f:
+        fp_call_graph = json.load(f)
+
+    with open(OPS_INDEX_FILE) as f:
+        ops_index = json.load(f)
+
+    # -----------------------------
+    # Load symbol database
+    # -----------------------------
+
+    with open(SYMBOL_INDEX_FILE, "rb") as f:
+        symbol_index = pickle.load(f)
+
+    # -----------------------------
+    # Restore set-based structures
+    # -----------------------------
+
+    call_graph = {
+        k: set(v)
+        for k, v in call_graph.items()
+    }
+
+    ops_index = {
+        k: set(v)
+        for k, v in ops_index.items()
+    }
+
+    return (
+        call_graph,
+        fp_call_graph,
+        symbol_index,
+        ops_index,
+    )
+
+# -----------------------------
+# MetaData validation - check if cache is still valid for current kernel commit
+# -----------------------------
+
+def cache_valid():
+
+    required_files = [
+        CALL_GRAPH_FILE,
+        FP_GRAPH_FILE,
+        SYMBOL_INDEX_FILE,
+        OPS_INDEX_FILE,
+        METADATA_FILE,
+    ]
+
+    if not all(os.path.exists(f) for f in required_files):
+        return False
+
+    try:
+        with open(METADATA_FILE) as f:
+            metadata = json.load(f)
+
+        current_commit = get_kernel_commit()
+
+        return metadata.get("kernel_commit") == current_commit
+
+    except:
+        return False
+
+# -----------------------------
+# Semantic graph compilation
+# Builds:
+#   - call graph
+#   - FP dispatch graph
+#   - symbol index
+#   - ops dispatch index
+# -----------------------------
+
+def build_semantic_graphs():
+
+    call_graph = {}
+    fp_call_graph = {}
+    symbol_index = {}
+    ops_index = {}
+    symbol_freq = {}
+    with open("chunks.jsonl") as f:
+        for line in f:
+            data = json.loads(line)
+
+            symbol = data["symbol"]
+            code = data["code"]
+
+
+
+
+            #if "sched_class" in code:
+            #    print("FOUND sched_class usage in:", symbol)
+
+            # Build symbol index & allow duplicate symbol names
+            #yashcache
+            entry = symbol_index.setdefault(symbol.lower(), {
+                "symbol": symbol,
+                "file": data["file"],
+                "code": ""
+            })
+
+            entry["code"] += "\n" + code
+            # For debugging: print the first 200 chars of the code 
+            # for __pick_next_task to verify it's being loaded correctly
+            #if symbol == "__pick_next_task":
+                #print("CODE SNIPPET:\n", code[:500])
+                #print("FP MATCHES FULL:", fp_pattern.findall(entry["code"])[:5])
+
+            # Frequency Tracking (for heuristics)
+            symbol_freq[symbol] = symbol_freq.get(symbol, 0) + 1
+
+            # Direct Calls extraction (for execution path tracing)
+            calls = [
+                c for c in call_pattern.findall(code)
+                if c != symbol and c not in IGNORE_CALLS
+            ]
+
+            # Using set to avoid duplicate callees which can bloat the call graph
+            # and cause infinite loops in traversal
+            # yashtbd - call graph is not fixed
+            #yashcache
+            call_graph.setdefault(symbol, set()).update(calls)
+
+            matches = ops_assign_pattern.findall(entry["code"]) # Change later to 346 line
+
+            for field, impl in matches:
+                if field in VALID_OPS:
+                    ops_index.setdefault(field, set()).add(impl)
+
+    # -----------------------------
+    # FIX: Load full function ONCE
+    # -----------------------------
+    if "__pick_next_task" in symbol_index:
+        full = load_full_function("__pick_next_task")
+        if full:
+            symbol_index["__pick_next_task"]["code"] = full
+
+        #print("FP MATCHES FULL:",
+        #    fp_pattern.findall(symbol_index["__pick_next_task"]["code"])[:5])
+    #print("Call graph loaded:", len(call_graph))
+    #print(call_graph.get("pick_next_task"))
+    #print(call_graph.get("__pick_next_task"))
+    #print("Building Full FP Call Graph...")
+
+    for key, entry in symbol_index.items():
+
+        symbol = entry["symbol"].strip()
+
+        full_code = entry["code"]
+
+
+
+        # Only FP-heavy functions require full reconstruction.
+        if any(hint in full_code for hint in INDIRECT_CALL_HINTS):
+            loaded = load_full_function(symbol)
+            if loaded:
+                full_code = loaded
+
+        matches = [
+            (obj.strip(), fn.strip())
+            for obj, fn in fp_pattern.findall(full_code)
+            if fn not in IGNORE_CALLS
+        ]
+
+        #yashcache
+        if matches:
+            fp_call_graph[symbol.strip()] = list(set(matches))
+    return (
+        call_graph,
+        fp_call_graph,
+        symbol_index,
+        ops_index,
+    )
+
+# -----------------------------
+# Function body loader using Ctags metadata
+# -----------------------------
 
 def load_full_function(symbol):
     """Uses Ctags metadata to jump to the correct file and extract a function body."""
@@ -126,6 +417,26 @@ def load_full_function(symbol):
 # =================================================================
 # 3. KERNEL HEURISTICS & TEMPLATES
 # =================================================================
+
+INDIRECT_CALL_HINTS = (
+    "->",
+    ".pick_next_task",
+    ".enqueue_task",
+    ".dequeue_task",
+    ".check_preempt_curr",
+    ".select_task_rq",
+    ".task_tick",
+)
+
+VALID_OPS = {
+    "pick_next_task",
+    "pick_task",
+    "enqueue_task",
+    "dequeue_task",
+    "check_preempt_curr",
+    "yield_task",
+    "wakeup_preempt",
+}
 
 ENTRY_POINT_MAP = {
     "context_switch": "schedule",
@@ -217,12 +528,12 @@ KERNEL_EXECUTION_TEMPLATES = {
     ],
 
     "interrupt_entry": [
-    "idtentry",
-    "do_IRQ",
-    "common_interrupt",
-    "irq_enter",
-    "generic_handle_irq"
-]
+        "idtentry",
+        "do_IRQ",
+        "common_interrupt",
+        "irq_enter",
+        "generic_handle_irq"
+    ]
 }
 
 # -----------------------------
@@ -286,145 +597,37 @@ STOPWORDS = {
 
 #ops_index = {}
 
-# -----------------------------
-# Load chunks + build call graph
-# CHUNK PARSING (CRITICAL SECTION)
-# -----------------------------
+# Add code here to parse ops struct assignments and populate ops_index
 
-with open("chunks.jsonl") as f:
-    for line in f:
-        data = json.loads(line)
+if cache_valid():
 
-        symbol = data["symbol"]
-        code = data["code"]
+    print("✅ Loading semantic cache...")
+    start = time.time()
 
+    (
+        call_graph,
+        fp_call_graph,
+        symbol_index,
+        ops_index,
+    ) = load_semantic_cache()
+    print(f"✅ Semantic cache loaded in {time.time() - start:.2f} seconds")
+else:
 
+    print("⚙️ Building semantic graphs...")
 
+    (
+        call_graph,
+        fp_call_graph,
+        symbol_index,
+        ops_index,
+    ) = build_semantic_graphs()
 
-        #if "sched_class" in code:
-        #    print("FOUND sched_class usage in:", symbol)
-
-        # Build symbol index & allow duplicate symbol names
-        entry = symbol_index.setdefault(symbol.lower(), {
-            "symbol": symbol,
-            "file": data["file"],
-            "code": ""
-        })
-
-        entry["code"] += "\n" + code
-        # For debugging: print the first 200 chars of the code 
-        # for __pick_next_task to verify it's being loaded correctly
-        #if symbol == "__pick_next_task":
-            #print("CODE SNIPPET:\n", code[:500])
-            #print("FP MATCHES FULL:", fp_pattern.findall(entry["code"])[:5])
-
-        # Frequency Tracking (for heuristics)
-        symbol_freq[symbol] = symbol_freq.get(symbol, 0) + 1
-
-        # Direct Calls extraction (for execution path tracing)
-        calls = [
-            c for c in call_pattern.findall(code)
-            if c != symbol and c not in IGNORE_CALLS
-        ]
-
-        # Using set to avoid duplicate callees which can bloat the call graph
-        # and cause infinite loops in traversal
-        # yashtbd - call graph is not fixed
-        call_graph.setdefault(symbol, set()).update(calls)
-
-        # -----------------------------
-        # FUNCTION POINTER EXTRACTION (TO ADD HERE)
-        # -----------------------------
-        # Goal:
-        #   Extract:
-        #       obj->method(...)
-        #   Store:
-        #       fp_call_graph[symbol] → [(obj, method)]
-
-        # Example:
-        #   p->sched_class->enqueue_task(...)
-        #   file->f_op->read(...)
-        #if symbol not in fp_call_graph:
-
-
-        # -----------------------------
-        # OPS STRUCT PARSING (TO ADD HERE)
-        # -----------------------------
-        # Goal:
-        #   Extract:
-        #       .enqueue_task = enqueue_task_fair
-        #
-        # Build:
-        #   ops_index:
-        #       enqueue_task → [enqueue_task_fair, enqueue_task_rt]
-        #
-        # Later:
-        #   instance_ops:
-        #       fair_sched_class → {enqueue_task: enqueue_task_fair}
-
-
-        matches = ops_assign_pattern.findall(entry["code"]) # Change later to 346 line
-
-        VALID_OPS = {
-            "pick_next_task",
-            "pick_task",
-            "enqueue_task",
-            "dequeue_task",
-            "check_preempt_curr",
-            "yield_task",
-            "wakeup_preempt",
-        }
-
-        for field, impl in matches:
-            if field in VALID_OPS:
-                ops_index.setdefault(field, set()).add(impl)
-
-# -----------------------------
-# FIX: Load full function ONCE
-# -----------------------------
-if "__pick_next_task" in symbol_index:
-    full = load_full_function("__pick_next_task")
-    if full:
-        symbol_index["__pick_next_task"]["code"] = full
-
-    #print("FP MATCHES FULL:",
-    #    fp_pattern.findall(symbol_index["__pick_next_task"]["code"])[:5])
-#print("Call graph loaded:", len(call_graph))
-#print(call_graph.get("pick_next_task"))
-#print(call_graph.get("__pick_next_task"))
-#print("Building Full FP Call Graph...")
-
-for key, entry in symbol_index.items():
-
-    symbol = entry["symbol"].strip()
-
-    full_code = entry["code"]
-
-    INDIRECT_CALL_HINTS = (
-        "->",
-        ".pick_next_task",
-        ".enqueue_task",
-        ".dequeue_task",
-        ".check_preempt_curr",
-        ".select_task_rq",
-        ".task_tick",
+    save_semantic_cache(
+        call_graph,
+        fp_call_graph,
+        symbol_index,
+        ops_index
     )
-
-    # Only FP-heavy functions require full reconstruction.
-    if any(hint in full_code for hint in INDIRECT_CALL_HINTS):
-        loaded = load_full_function(symbol)
-        if loaded:
-            full_code = loaded
-
-    matches = [
-        (obj.strip(), fn.strip())
-        for obj, fn in fp_pattern.findall(full_code)
-        if fn not in IGNORE_CALLS
-    ]
-
-    if matches:
-        fp_call_graph[symbol.strip()] = list(set(matches))
-
 #print("FP Analysis complete.")
 print("\nKernel Flow Explorer ready.")
 # print("FP GRAPH __pick_next_task:",
