@@ -60,6 +60,7 @@ cd linux
 
 ```bash
 ctags -R .
+ctags -R --languages=C --kinds-C=f --fields=+n
 ```
 
 This creates a large `tags` file used for symbol lookup.

@@ -1,43 +1,55 @@
+"""
+Linux Kernel Flow Explorer (RAG + Static Analysis)
+-------------------------------------------------
+An AI-powered tool to navigate and explain Linux kernel execution paths.
+Uses Ctags for symbol location, Regex for function pointer resolution,
+ChromaDB for RAG, and Ollama for local LLM reasoning.
+"""
+
 import requests
-from sentence_transformers import SentenceTransformer
-import chromadb
 import json
 import re
 import os
-from datetime import datetime
 import subprocess
+from datetime import datetime
+from sentence_transformers import SentenceTransformer
+import chromadb
 
-# -------------------------------
-# Final Ollama connectivity check
-# -------------------------------
+# =================================================================
+# 1. NETWORKING & OLLAMA CONFIGURATION
+# =================================================================
 def get_ollama_config():
-    # 1. Detect if we are in WSL
+    """Detects WSL or Linux environments and sets the Ollama API endpoint."""
+    # Check if we are running inside Windows Subsystem for Linux
     is_wsl = "microsoft-standard" in os.uname().release.lower()
     
     if is_wsl:
         try:
-            # Robust gateway detection
+            # Get the Windows host IP address from the WSL gateway
             cmd = "ip route show default | awk '{print $3}'"
             host_ip = subprocess.check_output(cmd, shell=True).decode().strip()
             url = f"http://{host_ip}:11434"
-        except:
+        except Exception:
             url = "http://127.0.0.1:11434"
     else:
         url = "http://127.0.0.1:11434"
 
-    # 2. Health Check
+    # Perform a health check to see if the LLM server is reachable
     try:
         requests.get(url, timeout=1)
         return url, True
-    except:
+    except requests.exceptions.RequestException:
         return url, False
 
 OLLAMA_HOST, IS_ACTIVE = get_ollama_config()
 OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
 
 print(f"[OLLAMA] Using endpoint: {OLLAMA_URL}")
+# =================================================================
+# 2. CORE REGEX PATTERNS
+# =================================================================
 
-# Direct function calls
+# Matches standard function calls: func_name(
 call_pattern = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(')
 
 # Token extraction (query + symbol match)
@@ -83,6 +95,7 @@ instance_ops = {}      # struct_instance → {method: impl}
 struct_instances = {}  # struct_type → instances
 
 def load_full_function(symbol):
+    """Uses Ctags metadata to jump to the correct file and extract a function body."""
     files = ctags_index.get(symbol, [])
     if not files: return None
 
@@ -107,15 +120,19 @@ def load_full_function(symbol):
                     elif content[i] == "}":
                         brace_count -= 1
                         if brace_count == 0: return content[idx:i+1]
-        except: continue
+        except Exception: continue
     return None
+
+# =================================================================
+# 3. KERNEL HEURISTICS & TEMPLATES
+# =================================================================
 
 ENTRY_POINT_MAP = {
     "context_switch": "schedule",
     "__schedule": "schedule",
     "try_to_wake_up": "wake_up_process",
     "ttwu_queue": "wake_up_process",
-    "switch_to": "schedule",
+    "__switch_to": "schedule",
     # interrupt aliases
     "arch_show_interrupts": "do_IRQ",
     "spurious_interrupt": "do_IRQ",
@@ -127,7 +144,7 @@ SCHED_PATH = [
     "__schedule",
     "pick_next_task",
     "context_switch",
-    "switch_to",
+    "__switch_to",
     "finish_task_switch"
 ]
 
@@ -138,7 +155,7 @@ KERNEL_EXECUTION_TEMPLATES = {
         "__schedule",
         "pick_next_task",
         "context_switch",
-        "switch_to",
+        "__switch_to",
         "finish_task_switch"
     ],
 
@@ -231,6 +248,7 @@ with open("tags") as f:
         ctags_index.setdefault(sym, []).append(file)
 
     print("CTAGS symbols loaded:", len(ctags_index))
+    #print("HAS __switch_to:", "__switch_to" in ctags_index)
 
 IGNORE_CALLS = {
     "if","for","while","switch","return","sizeof",
@@ -294,9 +312,10 @@ with open("chunks.jsonl") as f:
         })
 
         entry["code"] += "\n" + code
-
-        if symbol == "__pick_next_task":
-            print("CODE SNIPPET:\n", code[:500])
+        # For debugging: print the first 200 chars of the code 
+        # for __pick_next_task to verify it's being loaded correctly
+        #if symbol == "__pick_next_task":
+            #print("CODE SNIPPET:\n", code[:500])
             #print("FP MATCHES FULL:", fp_pattern.findall(entry["code"])[:5])
 
         # Frequency Tracking (for heuristics)
@@ -368,20 +387,34 @@ if "__pick_next_task" in symbol_index:
     if full:
         symbol_index["__pick_next_task"]["code"] = full
 
-    print("FP MATCHES FULL:",
-        fp_pattern.findall(symbol_index["__pick_next_task"]["code"])[:5])
-print("Call graph loaded:", len(call_graph))
-print(call_graph.get("pick_next_task"))
-print(call_graph.get("__pick_next_task"))
-print("Building Full FP Call Graph...")
+    #print("FP MATCHES FULL:",
+    #    fp_pattern.findall(symbol_index["__pick_next_task"]["code"])[:5])
+#print("Call graph loaded:", len(call_graph))
+#print(call_graph.get("pick_next_task"))
+#print(call_graph.get("__pick_next_task"))
+#print("Building Full FP Call Graph...")
 
 for key, entry in symbol_index.items():
 
     symbol = entry["symbol"].strip()
 
-    full_code = load_full_function(symbol)
-    if not full_code:
-        full_code = entry["code"]
+    full_code = entry["code"]
+
+    INDIRECT_CALL_HINTS = (
+        "->",
+        ".pick_next_task",
+        ".enqueue_task",
+        ".dequeue_task",
+        ".check_preempt_curr",
+        ".select_task_rq",
+        ".task_tick",
+    )
+
+    # Only FP-heavy functions require full reconstruction.
+    if any(hint in full_code for hint in INDIRECT_CALL_HINTS):
+        loaded = load_full_function(symbol)
+        if loaded:
+            full_code = loaded
 
     matches = [
         (obj.strip(), fn.strip())
@@ -392,15 +425,15 @@ for key, entry in symbol_index.items():
     if matches:
         fp_call_graph[symbol.strip()] = list(set(matches))
 
-print("FP Analysis complete.")
+#print("FP Analysis complete.")
 print("\nKernel Flow Explorer ready.")
-print("FP GRAPH __pick_next_task:",
-      fp_call_graph.get("__pick_next_task"))
-if "__schedule" in symbol_index:
-    code = symbol_index["__schedule"]["code"]
-    print("FINAL LENGTH:", len(code))
-    print("HAS pick_next_task:", "pick_next_task(" in code)
-print("Ask questions about Linux kernel execution paths.\n")
+# print("FP GRAPH __pick_next_task:",
+#       fp_call_graph.get("__pick_next_task"))
+# if "__schedule" in symbol_index:
+#     code = symbol_index["__schedule"]["code"]
+#     print("FINAL LENGTH:", len(code))
+#     print("HAS pick_next_task:", "pick_next_task(" in code)
+#print("Ask questions about Linux kernel execution paths.\n")
 
 
 # -----------------------------
@@ -420,7 +453,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "chroma_db")
 
 client = chromadb.PersistentClient(path=DB_PATH)
-print("Using ChromaDB at:", DB_PATH)
+#print("Using ChromaDB at:", DB_PATH)
 collection = client.get_collection("linux_kernel")
 
 # -----------------------------
@@ -601,9 +634,9 @@ def retrieve_code(query):
             
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    print("\nTop Vector retrieval candidates:\n")
-    for s in scored[:5]:
-        print(s[2]["symbol"], s[2]["file"], "score:", s[0])
+    # print("\nTop Vector retrieval candidates:\n")
+    # for s in scored[:5]:
+    #     print(s[2]["symbol"], s[2]["file"], "score:", s[0])
 
     docs = [s[1] for s in scored][:3]
     metas = [s[2] for s in scored][:3]
@@ -650,7 +683,7 @@ def retrieve_code(query):
         print("No functions retrieved")
         return [], []
 
-    print(f"\nTop function: {metas[0]['symbol']} ({metas[0]['file']})")
+    #   print(f"\nTop function: {metas[0]['symbol']} ({metas[0]['file']})")
     print("\nRetrieved functions:\n")
 
     for m in metas:
@@ -692,7 +725,7 @@ def trace_execution_path(symbol, query, depth=8):
     for _ in range(depth):
 
         current = current.strip()
-        print(f"[TRACE] current = {current}")
+        #print(f"[TRACE] current = {current}")
 
         # -----------------------------
         # FAST PATH (STRICTLY LIMITED)
@@ -702,7 +735,7 @@ def trace_execution_path(symbol, query, depth=8):
             if next_fn in symbol_index and next_fn not in visited:
                 path.append(next_fn)
                 visited.add(next_fn)
-                print(f"[FAST-PATH] {current} -> {next_fn}")
+                #print(f"[FAST-PATH] {current} -> {next_fn}")
                 current = next_fn
                 continue
 
@@ -718,7 +751,7 @@ def trace_execution_path(symbol, query, depth=8):
 
         fps_in_current = fp_call_graph.get(current, [])
         if fps_in_current:
-            print(f"[FP FOUND in {current}]: {fps_in_current}")
+            #print(f"[FP FOUND in {current}]: {fps_in_current}")
 
             NON_DISPATCH_FIELDS = {
                 "on_cpu", "state", "se", "nvcsw", "nivcsw",
@@ -732,7 +765,7 @@ def trace_execution_path(symbol, query, depth=8):
                 if method in ops_index:
                     impls = sorted(ops_index[method])[:3]
 
-                    print(f"[FP RESOLVED] {obj}->{method} => {impls}")
+                    #print(f"[FP RESOLVED] {obj}->{method} => {impls}")
 
                     for impl in impls:
                         if impl not in callees:
@@ -746,8 +779,8 @@ def trace_execution_path(symbol, query, depth=8):
                 ):
                     callees.append(method)
 
-        else:
-            print(f"[NO FP in {current}]")
+        #else:
+        #    print(f"[NO FP in {current}]")
 
         # -----------------------------
         # SEMANTIC FLOW FIX (CRITICAL)
@@ -760,12 +793,12 @@ def trace_execution_path(symbol, query, depth=8):
         # CONTEXT SWITCH CONTINUATION
         # -----------------------------
         if current == "context_switch":
-            callees = ["switch_to"] if "switch_to" in ctags_index else callees
+            callees.insert(0, "__switch_to")
 
         # -----------------------------
         # SWITCH_TO CONTINUATION
         # -----------------------------
-        if current == "switch_to":
+        if current == "__switch_to":
             if "finish_task_switch" in ctags_index:
                 callees.append("finish_task_switch")
 
@@ -780,9 +813,16 @@ def trace_execution_path(symbol, query, depth=8):
         # -----------------------------
         scored = []
 
+        ARCH_SYNTHETIC = {
+            "__switch_to",
+            "finish_task_switch"
+        }
         for c in callees:
 
-            if c not in ctags_index and c not in fp_derived and c not in call_graph:
+            if (c not in ctags_index
+                and c not in fp_derived
+                and c not in call_graph
+                and c not in ARCH_SYNTHETIC):
                 continue
 
             score = 0
@@ -815,12 +855,12 @@ def trace_execution_path(symbol, query, depth=8):
                 score += 400
 
             if current == "context_switch":
-                if c == "switch_to":
+                if c == "__switch_to":
                     score += 1000   # force correct transition
                 elif c == "finish_task_switch":
                     score -= 500    # prevent premature jump
 
-            if current == "switch_to" and c == "finish_task_switch":
+            if current == "__switch_to" and c == "finish_task_switch":
                 score += 300
 
             scored.append((score, c))
@@ -836,7 +876,7 @@ def trace_execution_path(symbol, query, depth=8):
 
         path.append(next_fn)
         visited.add(next_fn)
-        print(f"[TRACE-NEXT] {path[-2]} -> {next_fn}")
+        #print(f"[TRACE-NEXT] {path[-2]} -> {next_fn}")
         current = next_fn
 
     return path[:12]
