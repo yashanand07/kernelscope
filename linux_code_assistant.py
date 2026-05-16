@@ -1,9 +1,20 @@
 """
-Linux Kernel Flow Explorer (RAG + Static Analysis)
+Linux Kernel Flow Explorer
 -------------------------------------------------
-An AI-powered tool to navigate and explain Linux kernel execution paths.
-Uses Ctags for symbol location, Regex for function pointer resolution,
-ChromaDB for RAG, and Ollama for local LLM reasoning.
+Semantic execution analysis for the Linux kernel.
+
+Reconstructs kernel execution paths using:
+- semantic retrieval
+- subsystem-aware reranking
+- scheduler dispatch reconstruction
+- execution-path analysis
+- local LLM reasoning
+
+Uses:
+- Ctags for symbol resolution
+- ChromaDB for semantic retrieval
+- Mermaid for execution visualization
+- Ollama for grounded local reasoning
 """
 
 import requests
@@ -614,7 +625,7 @@ if cache_valid():
 else:
 
     print("⚙️ Building semantic graphs...")
-
+    start = time.time()
     (
         call_graph,
         fp_call_graph,
@@ -622,6 +633,7 @@ else:
         ops_index,
     ) = build_semantic_graphs()
 
+    print(f"⚙️ Semantic graphs built in {time.time() - start:.2f} seconds")
     save_semantic_cache(
         call_graph,
         fp_call_graph,

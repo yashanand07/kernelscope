@@ -1,5 +1,5 @@
 # Kernel Flow Explorer
-### A Local RAG Experiment for Understanding the Linux Kernel
+### Semantic Execution Analysis for the Linux Kernel
 
 ⚡ Runs fully locally. No API keys. No cost.
 
@@ -78,7 +78,7 @@ Query → retrieve code → build execution flow → LLM explains
 
 ---
 
-## Why RAG Works for the Kernel
+## Why Semantic Execution Analysis Matters
 
 The Linux kernel is:
 
@@ -89,11 +89,12 @@ The Linux kernel is:
 
 This makes it difficult for LLMs alone to reason accurately.
 
-RAG helps by:
+Execution-aware retrieval helps by:
 
-- grounding responses in real code
-- reducing hallucinations
-- enabling inspectable reasoning
+- grounding explanations in real kernel code
+- reconstructing subsystem execution paths
+- reducing hallucinated reasoning
+- enabling inspectable execution flow analysis
 
 ---
 
@@ -106,17 +107,21 @@ RAG helps by:
 
 ---
 
-## What This Is Not
+## Current Scope
 
-- not a perfect call graph
-- not a full static analyzer
-- not a replacement for reading code
+Kernel Flow Explorer focuses on:
 
-Execution paths are currently:
+- semantic execution reconstruction
+- subsystem-aware tracing
+- execution-path understanding
+- grounded kernel explanations
 
-- heuristic
-- template-driven
-- approximate
+The current implementation uses:
+- heuristic traversal
+- semantic reranking
+- dispatch reconstruction
+
+rather than full compiler-grade static analysis.
 
 ---
 
@@ -140,9 +145,9 @@ G[Execution Path]
 end
 
 subgraph Generation
-H[Context Builder]
+H[Execution Context]
 I[Local LLM]
-J[Final Answer]
+J[Grounded Explanation]
 end
 
 A --> B --> C --> D --> E --> F --> G --> H --> I --> J
@@ -177,9 +182,9 @@ How does Linux handle an interrupt?
 - understand flows without deep prior context
 - visualize interactions across components
 
-### RAG / LLM Builders
+### Systems / AI Engineers
 - see how retrieval + reranking + domain heuristics combine
-- learn how to build code-aware AI systems
+- learn how semantic retrieval, reranking, and execution reconstruction combine for grounded systems reasoning
 
 ### Anyone Wanting a Local AI Tutor
 - no API cost
@@ -217,9 +222,9 @@ Subsystem detection
 ↓
 Execution path reconstruction
 ↓
-Mermaid graph
+Mermaid execution graph
 ↓
-LLM explanation
+Grounded LLM explanation
 ```
 
 ---
@@ -247,12 +252,43 @@ Notes:
 
 ---
 
-# Current Limitations
+Current capabilities include:
+- scheduler-class dispatch reconstruction
+- semantic execution-path tracing
+- Mermaid execution graph generation
+- persistent semantic graph caching
 
-- function pointers not resolved
-- ops tables not followed
-- arch-specific paths simplified
-- execution path is heuristic
+---
+
+# Current Limitations
+- partial function-pointer reconstruction
+- arch-specific execution simplifications
+- heuristic execution tracing in some subsystems
+- no runtime validation yet
+
+---
+
+## Current Semantic Coverage
+
+Implemented:
+- scheduler execution tracing
+- scheduler-class dispatch reconstruction
+- Mermaid execution graph generation
+- persistent semantic graph caching
+
+Planned:
+- wakeup flows
+- IRQ execution tracing
+- MM traversal
+- driver subsystem reconstruction
+- SMP interactions
+- cgroup-aware tracing
+
+The current implementation can reconstruct scheduler-class execution dispatch paths, including indirect scheduling transitions such as:
+
+pick_next_task()
+→ __pick_next_task()
+→ pick_next_task_fair()
 
 ---
 
@@ -263,9 +299,10 @@ Notes:
 - real callgraph integration (clang / cflow)
 - runtime tracing (ftrace, eBPF)
 
-### RAG Improvements
-- graph-based RAG
-- multi-source RAG (code + docs)
+### Semantic Retrieval & Execution Analysis Improvements
+- graph-aware semantic retrieval
+- multi-source semantic retrieval (code + docs)
+- execution-aware retrieval refinement
 
 ### Intelligence Layer
 - subsystem-aware reasoning (USB, networking, DRM, block layer)
@@ -282,7 +319,7 @@ Notes:
 
 ---
 
-# Broader Vision
+# Long Term Direction
 
 This is not just about the Linux kernel.
 
