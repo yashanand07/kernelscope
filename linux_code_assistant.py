@@ -48,58 +48,6 @@ class EdgeType(Enum):
     INTERRUPT_ENTRY = "INTERRUPT_ENTRY"
     INTERRUPT_EXIT = "INTERRUPT_EXIT"
 
-LOW_SIGNAL_CALLS = {
-    "lockdep_assert",
-    "task_is_running",
-    "schedstat_inc",
-    "trace_sched_switch",
-    "rcu_note_context_switch",
-    "might_sleep",
-    "preempt_disable",
-    "preempt_enable",
-    "WARN_ON",
-}
-
-EXECUTION_SPINE_BOOST = {
-    "schedule": 10.0,
-    "__schedule": 10.0,
-    "pick_next_task": 10.0,
-    "__pick_next_task": 10.0,
-    "pick_next_task_fair": 10.0,
-    "context_switch": 10.0,
-    "__switch_to": 10.0,
-    "finish_task_switch": 10.0,
-    "__schedule_loop": 10.0,
-}
-
-HIGH_VALUE_EXECUTION_SYMBOLS = {
-    "schedule",
-    "__schedule",
-    "pick_next_task",
-    "__pick_next_task",
-    "pick_next_task_fair",
-    "context_switch",
-    "__switch_to",
-    "finish_task_switch",
-}
-
-HIGH_VALUE_TRANSITIONS = {
-    ("schedule", "__schedule"): 20.0,
-
-    ("__schedule", "pick_next_task"): 20.0,
-
-    ("pick_next_task", "__pick_next_task"): 20.0,
-
-    ("__pick_next_task", "pick_next_task_fair"): 20.0,
-
-    ("pick_next_task_fair", "context_switch"): 20.0,
-
-    ("context_switch", "__switch_to"): 20.0,
-
-    ("__switch_to", "finish_task_switch"): 20.0,
-    ("schedule", "__schedule_loop"): 20.0,
-    ("__schedule_loop", "__schedule"): 20.0,
-}
 
 MACRO_LIKE_SYMBOLS = {
     "DEFINE_WAIT_OVERRIDE_MAP",
@@ -335,6 +283,19 @@ class SemanticGraph:
             is_deterministic=is_deterministic
         )
 
+        # To solve the problem of duplicate edges being created due to
+        # multiple regex matches or overlapping heuristics,
+        # we first check if an identical edge already exists before
+        # registering a new one. This ensures that the graph remains
+        # clean and prevents bloat from redundant edges.
+        existing = self.semantic_edges_by_src.get(
+            src_symbol_id,
+            []
+        )
+
+        for e in existing:
+            if e.edge_id == edge_id:
+                return edge_id
         # ----------------------------------------------------
         # Forward Index
         # ----------------------------------------------------
@@ -520,11 +481,21 @@ class RuntimeExecutionEngine:
 
         runtime_graph = RuntimeExecutionGraph()
 
+        # To prevent cycles and redundant paths, we maintain a set of visited symbols.
+        visited_symbols = set()
+
         current_symbol_id = start_symbol_id
 
         previous_node_id = None
 
         for depth in range(max_depth):
+
+            # To avoid infinite loops in cases where the semantic
+            # graph has cycles or redundant edges
+            if current_symbol_id in visited_symbols:
+                break
+
+            visited_symbols.add(current_symbol_id)
 
             node_id = self.generate_execution_node_id(
                 symbol_id=current_symbol_id,
@@ -943,7 +914,7 @@ def register_all_symbols(semantic_graph, symbol_index):
 # Semantic IR Graph compilation
 # -----------------------------
 
-def compile_semantic_ir():
+def compile_semantic_ir(profile):
 
     semantic_graph = SemanticGraph()
 
@@ -1032,15 +1003,15 @@ def compile_semantic_ir():
                 #     kind="function"
                 # )
 
-                if callee in LOW_SIGNAL_CALLS:
+                if callee in profile.low_signal_calls:
                     confidence = 0.1
                 else:
                     confidence = 1.0
-                if callee in EXECUTION_SPINE_BOOST:
-                    confidence += EXECUTION_SPINE_BOOST[callee]
+                if callee in profile.execution_spine_boost:
+                    confidence += profile.execution_spine_boost[callee]
                 transition_key = (symbol, callee)
-                if transition_key in HIGH_VALUE_TRANSITIONS:
-                    confidence += HIGH_VALUE_TRANSITIONS[
+                if transition_key in profile.high_value_transitions:
+                    confidence += profile.high_value_transitions[
                         transition_key
                     ]
                 semantic_graph.register_semantic_edge(
@@ -1073,15 +1044,7 @@ def compile_semantic_ir():
     #print(call_graph.get("pick_next_task"))
     #print(call_graph.get("__pick_next_task"))
     #print("Building Full FP Call Graph...")
-    SYNTHETIC_SCHED_BRIDGES = {
-        "pick_next_task_fair": "context_switch",
-        "pick_next_task_rt": "context_switch",
-        "pick_next_task_idle": "context_switch",
 
-        "context_switch": "__switch_to",
-
-        "__switch_to": "finish_task_switch",
-    }
     for key, entry in symbol_index.items():
 
         symbol = entry["symbol"].strip()
@@ -1132,7 +1095,7 @@ def compile_semantic_ir():
                     #     line=0,
                     #     kind="function"
                     # )
-                    if callee in LOW_SIGNAL_CALLS:
+                    if impl in profile.low_signal_calls:
                         confidence = 0.1
                     else:
                         confidence = 1.0
@@ -1158,7 +1121,7 @@ def compile_semantic_ir():
     # Inject Synthetic Scheduler Continuations
     # --------------------------------------------------------
 
-    for src_name, dst_name in SYNTHETIC_SCHED_BRIDGES.items():
+    for src_name, dst_name in profile.synthetic_bridges.items():
 
         src_id = None
         dst_id = None
@@ -1247,6 +1210,90 @@ def load_full_function(symbol):
 # --------------------------------------------------------
 # SUBSYSTEM PROFILES - scheduler, irq, mm, driver etc
 # --------------------------------------------------------
+
+@dataclass
+class SubsystemSemanticProfile:
+
+    subsystem_name: str
+
+    entrypoints: list[str]
+
+    low_signal_calls: set[str]
+
+    execution_spine_boost: dict[str, float]
+
+    high_value_transitions: dict[
+        tuple[str, str],
+        float
+    ]
+
+    synthetic_bridges: dict[str, str]
+
+def determine_subsystem_profile(query: str):
+    if "sched" in query.lower():
+        return SCHEDULER_PROFILE
+
+SCHEDULER_PROFILE = SubsystemSemanticProfile(
+    subsystem_name="kernel/sched",
+
+    entrypoints=["schedule", "try_to_wake_up", "wake_up_process"],
+
+    low_signal_calls = {
+        "lockdep_assert",
+        "task_is_running",
+        "schedstat_inc",
+        "trace_sched_switch",
+        "rcu_note_context_switch",
+        "might_sleep",
+        "preempt_disable",
+        "preempt_enable",
+        "WARN_ON",
+    },
+
+    execution_spine_boost = {
+        "schedule": 10.0,
+        "__schedule": 10.0,
+        "pick_next_task": 10.0,
+        "__pick_next_task": 10.0,
+        "pick_next_task_fair": 10.0,
+        "context_switch": 10.0,
+        "__switch_to": 10.0,
+        "finish_task_switch": 10.0,
+        "__schedule_loop": 10.0,
+    },
+
+    high_value_transitions = {
+        ("schedule", "__schedule"): 20.0,
+
+        ("__schedule", "pick_next_task"): 20.0,
+
+        ("pick_next_task", "__pick_next_task"): 20.0,
+
+        ("__pick_next_task", "pick_next_task_fair"): 20.0,
+
+        ("pick_next_task_fair", "context_switch"): 20.0,
+
+        ("context_switch", "__switch_to"): 20.0,
+
+        ("__switch_to", "finish_task_switch"): 20.0,
+        ("schedule", "__schedule_loop"): 20.0,
+        ("__schedule_loop", "__schedule"): 20.0,
+    },
+
+    # These are manually curated edges that we know exist but are not easily
+    # detectable through regex parsing due to indirect calls, function pointer
+    # dispatches, or complex control flow. They help bridge gaps in the semantic
+    # graph and enable more complete execution path reconstruction.
+    synthetic_bridges = {
+        "pick_next_task_fair": "context_switch",
+        "pick_next_task_rt": "context_switch",
+        "pick_next_task_idle": "context_switch",
+
+        "context_switch": "__switch_to",
+
+        "__switch_to": "finish_task_switch",
+    }
+)
 """
 class SubsystemSemanticProfile:
 
@@ -1277,9 +1324,77 @@ class SubsystemSemanticProfile:
     associated_structs: set[str]
     total_symbols: int
 """
+# ============================================================
+# IR TEST HARNESS
+# ============================================================
+
+def print_runtime_graph(
+    runtime_graph: RuntimeExecutionGraph,
+    semantic_graph: SemanticGraph
+):
+
+    print("\n========== Runtime Execution Graph ==========\n")
+
+    for node_id, node in runtime_graph.nodes.items():
+
+        symbol = semantic_graph.lookup_symbol(
+            node.symbol_id
+        )
+
+        print(
+            f"[CPU {node.cpu}] "
+            f"Depth={node.depth} "
+            f"{symbol.name} "
+            f"({symbol.file_path})"
+        )
+
+    print("\n========== Runtime Edges ==========\n")
+
+    for edge in runtime_graph.edges:
+
+        src = runtime_graph.nodes[edge.src_node_id]
+        dst = runtime_graph.nodes[edge.dst_node_id]
+
+        src_sym = semantic_graph.lookup_symbol(src.symbol_id)
+        dst_sym = semantic_graph.lookup_symbol(dst.symbol_id)
+
+        print(
+            f"{src_sym.name}"
+            f" --> "
+            f"{dst_sym.name}"
+        )
+
 # =================================================================
 # SECTION 4 - Subsystem Profiles of the Linux kernel - Ends
 # =================================================================
+
+def run_scheduler_semantic_workflow(semantic_graph, profile):
+    print("Scheduler profile detected. Prioritizing scheduler-related symbols and edges.")
+
+    runtime_engine = RuntimeExecutionEngine(
+        semantic_graph
+    )
+
+    start_symbol_id = (
+        semantic_graph.resolve_symbol_by_name(
+            "schedule"
+        )
+    )
+
+    runtime_graph = (
+        runtime_engine.reconstruct_execution_path(
+            start_symbol_id=start_symbol_id,
+
+            cpu=0,
+
+            max_depth=16
+        )
+    )
+
+    print_runtime_graph(
+        runtime_graph,
+        semantic_graph
+    )
 
 
 # =================================================================
@@ -1490,17 +1605,28 @@ else:
     #     ops_index,
     # ) = build_semantic_graphs()
 
+    # Query is for the moment hardcoded to scheduler execution tracing to
+    # focus on one area of the kernel and iterate faster on the semantic
+    # graph construction and runtime engine. Next step is to expand to
+    # other subsystems and make it dynamic based on the user query.
+    query = "scheduler execution tracing"
+    #Get the profile from the User Query
+    profile = determine_subsystem_profile(query)
+
     (
         call_graph,
         fp_call_graph,
         symbol_index,
         ops_index,
         semantic_graph
-    ) = compile_semantic_ir()
+    ) = compile_semantic_ir(profile)
 
     print(
         len(semantic_graph.symbol_table)
     )
+
+    if profile == SCHEDULER_PROFILE:
+        run_scheduler_semantic_workflow(semantic_graph, profile)
 
     edge_count = sum(
         len(v)
@@ -2109,45 +2235,7 @@ def append_callees(symbol, docs, metas):
                 "file": entry["file"]
             })
 #############################
-# ============================================================
-# IR TEST HARNESS
-# ============================================================
 
-def print_runtime_graph(
-    runtime_graph: RuntimeExecutionGraph,
-    semantic_graph: SemanticGraph
-):
-
-    print("\n========== Runtime Execution Graph ==========\n")
-
-    for node_id, node in runtime_graph.nodes.items():
-
-        symbol = semantic_graph.lookup_symbol(
-            node.symbol_id
-        )
-
-        print(
-            f"[CPU {node.cpu}] "
-            f"Depth={node.depth} "
-            f"{symbol.name} "
-            f"({symbol.file_path})"
-        )
-
-    print("\n========== Runtime Edges ==========\n")
-
-    for edge in runtime_graph.edges:
-
-        src = runtime_graph.nodes[edge.src_node_id]
-        dst = runtime_graph.nodes[edge.dst_node_id]
-
-        src_sym = semantic_graph.lookup_symbol(src.symbol_id)
-        dst_sym = semantic_graph.lookup_symbol(dst.symbol_id)
-
-        print(
-            f"{src_sym.name}"
-            f" --> "
-            f"{dst_sym.name}"
-        )
 
 # --------------------------------------------------------
 # Test function to validate runtime reconstruction of the
@@ -2362,19 +2450,19 @@ print(f"✅ Connected to Ollama at {OLLAMA_HOST}")
 
 # Isolated IR Validation
 #test_scheduler_semantic_ir()
-(
-    call_graph,
-    fp_call_graph,
-    symbol_index,
-    ops_index,
-    semantic_graph,
-) = compile_semantic_ir()
+# (
+#     call_graph,
+#     fp_call_graph,
+#     symbol_index,
+#     ops_index,
+#     semantic_graph,
+# ) = compile_semantic_ir(profile)
 
 # Working for the scheduler subsystem but needs more tuning and validation for others,
 # especially interrupt handling which has more complex patterns and less direct calls.
-test_real_scheduler_runtime(
-    semantic_graph
-)
+# test_real_scheduler_runtime(
+#     semantic_graph
+# )
 
 exit(0)
 # code below this is not in the critical path for the IR testing and
