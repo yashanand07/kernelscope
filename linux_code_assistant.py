@@ -20,7 +20,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from hashlib import sha1
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Any
+from visualization.runtime_graph_printer import (
+    RuntimeGraphPrinter
+)
+from visualization.mermaid_exporter import (
+    MermaidGraphExporter
+)
 
 import requests
 import json
@@ -32,13 +38,15 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 import time
 import platform
+import pickle
 
+DEBUG = False
 LINUX_ROOT = os.environ.get(
     "LINUX_ROOT",
     "."
 )
 ACTIVE_PROFILE = None
-ACTIVE_SEMANTIC_GRAPH = None
+ACTIVE_SEMANTIC_BUNDLE = None
 CURRENT_IR_VERSION = 1
 
 
@@ -60,6 +68,10 @@ CACHE_DIR = "semantic_cache"
 SEMANTIC_IR_FILE = os.path.join(
     CACHE_DIR,
     "semantic_ir.json"
+)
+SEMANTIC_IR_BUNDLE_FILE = os.path.join(
+    CACHE_DIR,
+    "semantic_ir_bundle.pkl"
 )
 
 
@@ -134,6 +146,8 @@ class SemanticGraph:
         self.fq_name_to_id: Dict[str, str] = {}
 
         self.name_to_symbol_id = {}
+
+        self.semantic_edge_index = {}
 
         # ----------------------------------------------------
         # Edge Registries
@@ -324,6 +338,14 @@ class SemanticGraph:
         ).append(edge)
 
         # ----------------------------------------------------
+        # Edge Lookup Index
+        # ----------------------------------------------------
+
+        self.semantic_edge_index[
+            edge.edge_id
+        ] = edge
+
+        # ----------------------------------------------------
         # Deterministic Traversal Ordering
         # ----------------------------------------------------
 
@@ -361,63 +383,6 @@ class SemanticGraph:
             []
         )
 
-    def save_semantic_ir(self, path: str, profile: SubsystemSemanticProfile):
-
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        with open(path, "w") as f:
-
-            json.dump(
-                self.export_json(),
-                f,
-                indent=2
-            )
-        # We will take this out later - for now we want to save
-        # metadata together with the IR for easier validation during development
-        # yashtbd - separate metadata saving later
-        with open(METADATA_FILE, "w") as f:
-            json.dump(generate_semantic_ir_metadata(self, profile), f, indent=2)
-
-    @classmethod
-    def load_semantic_ir(cls, path: str) -> SemanticGraph:
-
-        with open(path) as f:
-            data = json.load(f)
-
-        graph = cls()
-
-        # Rebuild symbols
-        for symbol_id, sym_data in data["symbols"].items():
-            graph.symbol_table[symbol_id] = (
-                SymbolIdentity(**sym_data)
-            )
-
-        # Rebuild Forward Edges
-        for src_id, edges in data[
-            "semantic_edges_by_src"
-        ].items():
-
-            graph.semantic_edges_by_src[src_id] = []
-
-            for edge_data in edges:
-
-                edge_data["edge_type"] = (
-                    EdgeType(edge_data["edge_type"])
-                )
-
-                edge = SemanticEdge(**edge_data)
-
-                graph.semantic_edges_by_src[
-                    src_id
-                ].append(edge)
-
-        # Rebuild Lookup Indexes
-        graph.fq_name_to_id = data["fq_name_to_id"]
-
-        graph.name_to_symbol_id = data["name_to_symbol_id"]
-
-        graph.rebuild_indexes()
-
-        return graph
 
     def rebuild_indexes(self):
 
@@ -435,6 +400,10 @@ class SemanticGraph:
                     []
                 ).append(edge)
 
+                self.semantic_edge_index[
+                    edge.edge_id
+                ] = edge
+
     def number_of_edges(self):
         count = 0
         for edges in self.semantic_edges_by_src.values():
@@ -447,6 +416,13 @@ class SemanticGraph:
             for edge in edges:
                 if edge.edge_type == EdgeType.FUNCTION_POINTER_DISPATCH:
                     count += 1
+        dispatch_edge_count = count
+        if DEBUG:
+            print(
+                f"Dispatch edges reconstructed: "
+                f"{dispatch_edge_count}"
+            )
+
         return count
 
     def synthetic_edges(self):
@@ -455,6 +431,11 @@ class SemanticGraph:
             for edge in edges:
                 if edge.edge_type == EdgeType.SYNTHETIC_BRIDGE:
                     count += 1
+        if DEBUG:
+            print(
+                f"Synthetic edges reconstructed: "
+                f"{count}"
+            )
         return count
 
     def semantic_ir_stats(self):
@@ -661,7 +642,7 @@ class RuntimeExecutionEngine:
 
                         dst_node_id=node_id,
 
-                        semantic_edge_id=None,
+                        semantic_edge_id=selected_edge.edge_id,
 
                         execution_context="scheduler_path"
                     )
@@ -684,17 +665,74 @@ class RuntimeExecutionEngine:
             # Edges are sorted by confidence and determinism in register_semantic_edge().
             selected_edge = outgoing_edges[0]
 
-            previous_node_id = node_id
-
-            current_symbol_id = (
+            next_symbol_id = (
                 selected_edge.dst_symbol_id
             )
 
+            next_node_id = self.generate_execution_node_id(
+                symbol_id=next_symbol_id,
+                cpu=cpu,
+                depth=depth + 1,
+                context="process_context"
+            )
+
+            next_node = ExecutionNode(
+                node_id=next_node_id,
+                symbol_id=next_symbol_id,
+                cpu=cpu,
+                context="process_context",
+                timestamp=None,
+                depth=depth + 1
+            )
+
+            runtime_graph.nodes[next_node_id] = next_node
+
+            runtime_graph.edges.append(
+                ExecutionEdge(
+                    src_node_id=node_id,
+                    dst_node_id=next_node_id,
+                    semantic_edge_id=selected_edge.edge_id,
+                    execution_context="scheduler_path"
+                )
+            )
+
+            current_symbol_id = next_symbol_id
         return runtime_graph
 
 # ============================================================
 # SECTION 2 - Runtime Execution Layer - Ends
 # ============================================================
+
+@dataclass
+class SemanticIRBundle:
+
+    semantic_graph: SemanticGraph
+
+    symbol_code_index: Dict[str, str]
+
+    ops_index: Dict[str, Set[str]]
+
+    metadata: Dict[str, Any]
+
+    @staticmethod
+    def save_semantic_ir_bundle(
+        bundle,
+    ):
+        os.makedirs(CACHE_DIR, exist_ok=True)
+
+        with open(SEMANTIC_IR_BUNDLE_FILE, "wb") as f:
+            pickle.dump(bundle, f)
+
+    @staticmethod
+    def load_semantic_ir_bundle():
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        try:
+            with open(SEMANTIC_IR_BUNDLE_FILE, "rb") as f:
+                bundle = pickle.load(f)
+                return bundle
+        except Exception as e:
+            print(f"Error loading semantic IR bundle: {e}")
+            return None
 
 # ============================================================
 # SUBSYSTEM DETECTION
@@ -776,12 +814,14 @@ fp_pattern = re.compile(
     r'([a-zA-Z_]\w*(?:\s*->\s*[a-zA-Z_]\w*)*)\s*->\s*([a-zA-Z_]\w*)\s*\(',
     re.MULTILINE | re.DOTALL
 )
+
 ops_assign_pattern = re.compile(
-    r'\.(\w+)\s*=\s*(\w+)'
+    r"\.(\w+)\s*=\s*([A-Za-z0-9_]+)\s*,",
+    re.MULTILINE
 )
 
 # Cache metadata file path.
-METADATA_FILE = os.path.join(CACHE_DIR, "metadata.json")
+#METADATA_FILE = os.path.join(CACHE_DIR, "metadata.json")
 
 # -----------------------------
 # Linux Kernel commit tracking - MetaData Helpers
@@ -865,20 +905,30 @@ def generate_semantic_ir_metadata(
 }
 
 def semantic_ir_cache_valid(profile):
-    """Return True if the cached semantic IR is present and still valid."""
+    """
+    Return True if the semantic IR bundle
+    exists and is compatible with the
+    current kernel + subsystem profile.
+    """
 
-    required_files = [
-        SEMANTIC_IR_FILE,
-        METADATA_FILE,
-    ]
+    bundle_path = SEMANTIC_IR_BUNDLE_FILE;
+    # os.path.join(
+    #     CACHE_DIR,
+    #     "semantic_ir_bundle.pkl"
+    # )
 
-    if not all(os.path.exists(f) for f in required_files):
-        print("Semantic IR cache files missing.", SEMANTIC_IR_FILE, METADATA_FILE)
+    if not os.path.exists(bundle_path):
+        print("Semantic IR cache bundle missing.", bundle_path)
         return False
 
     try:
-        with open(METADATA_FILE) as f:
-            metadata = json.load(f)
+        bundle = SemanticIRBundle.load_semantic_ir_bundle()
+
+        if bundle is None:
+            print("Failed to load semantic IR bundle.")
+            return False
+
+        metadata = bundle.metadata
 
         current_commit = get_kernel_commit()
 
@@ -886,7 +936,17 @@ def semantic_ir_cache_valid(profile):
             "subsystem_profiles",
             []
         )
-        print(f"Cache metadata loaded. Kernel commit: {metadata['kernel']['commit']}, Current commit: {current_commit}, Cached profiles: {cached_profiles}")
+        if DEBUG:
+            print(
+                "Cache metadata loaded. "
+                f"Kernel commit: "
+                f"{metadata['kernel']['commit']}, "
+                f"Current commit: "
+                f"{current_commit}, "
+            f"Cached profiles: "
+            f"{cached_profiles}"
+        )
+
         return (
             metadata["kernel"]["commit"]
             == current_commit
@@ -941,6 +1001,130 @@ def register_all_symbols(semantic_graph, symbol_index):
 
             entry["code"] += "\n" + data["code"]
 
+def build_dispatch_index(
+    symbol_index,
+    profile
+):
+
+    ops_index = {}
+
+    for key, entry in symbol_index.items():
+
+        symbol = entry["symbol"].strip()
+
+        loaded = entry["code"]
+        if DEBUG and symbol.endswith("_sched_class"):
+            print("\n=== RAW LOADED ===")
+            print(loaded[:4000])
+
+            print("\n=== REGEX ===")
+            print(ops_assign_pattern.pattern)
+
+        if not profile.requires_dispatch_analysis(symbol):
+            continue
+
+        if not symbol.endswith("_sched_class"):
+            continue
+
+        if DEBUG:
+            print("\n=== PROVIDER SYMBOL ===")
+            print(symbol)
+
+            print("\n=== SCHED CLASS DEF ===")
+            print(loaded[:4000])
+
+        matches = ops_assign_pattern.findall(loaded)
+
+        if DEBUG:
+            print("\n=== OPS MATCHES ===")
+            print(matches[:50])
+
+        for field, impl in matches:
+
+            if field in VALID_OPS:
+                ops_index.setdefault(field, set()).add(impl)
+
+    return ops_index
+
+
+def resolve_dispatch_edges(
+    semantic_graph,
+    symbol_index,
+    ops_index,
+    profile
+):
+    
+    for key, entry in symbol_index.items():
+
+        symbol = entry["symbol"].strip()
+
+        if profile.subsystem_name not in entry["file"]:
+            continue
+
+        loaded = load_full_function(symbol)
+
+        if loaded:
+            full_code = loaded
+        else:
+            full_code = entry["code"]
+
+        matches = [
+            (obj.strip(), fn.strip())
+            for obj, fn in fp_pattern.findall(full_code)
+            if fn not in IGNORE_CALLS
+        ]
+
+        if matches:
+            for obj, method in matches:
+
+                if method not in ops_index:
+                    if DEBUG:
+                        print(
+                            f"Dispatch method={method}, "
+                            f"in ops_index={method in ops_index}"
+                        )
+                    continue
+
+                implementations = ops_index[method]
+                if DEBUG:
+                    print(
+                        f"Resolved implementations for "
+                        f"{method}: {implementations}"
+                    )
+
+                for impl in implementations:
+
+                    if impl.lower() in symbol_index:
+                        impl_file = symbol_index[impl.lower()]["file"]
+                    else:
+                        impl_file = "unknown"
+                    dst_symbol_id = semantic_graph.resolve_symbol_by_name(impl)
+
+                    if not dst_symbol_id:
+                        continue
+                    if impl in profile.low_signal_calls:
+                        confidence = 0.1
+                    else:
+                        confidence = 1.0
+                    current_src_symbol_id = (
+                        semantic_graph.resolve_symbol_by_name(
+                            symbol
+                        )
+                    )
+                    semantic_graph.register_semantic_edge(
+                        src_symbol_id=current_src_symbol_id,
+
+                        dst_symbol_id=dst_symbol_id,
+
+                        edge_type=EdgeType.FUNCTION_POINTER_DISPATCH,
+
+                        confidence=confidence,
+
+                        resolution_source="ops_dispatch_parse",
+
+                        is_deterministic=False
+                    )
+
 # -----------------------------
 # Semantic IR Graph compilation
 # -----------------------------
@@ -954,8 +1138,11 @@ def compile_semantic_ir(profile):
     symbol_index = {}
     ops_index = {}
     symbol_freq = {}
+    symbol_code_index = {}
 
     # call the 1st pass to register all symbols and build the symbol index with code snippets
+    # Phase 1 - Symbol Registration and Indexing - We first register
+    # all symbols to build the semantic graph's symbol table.
     register_all_symbols(
         semantic_graph,
         symbol_index
@@ -975,6 +1162,7 @@ def compile_semantic_ir(profile):
                 )
             )
             code = data["code"]
+            symbol_code_index[symbol] = code
 
             # Frequency Tracking (for heuristics)
             symbol_freq[symbol] = symbol_freq.get(symbol, 0) + 1
@@ -1021,96 +1209,32 @@ def compile_semantic_ir(profile):
                     resolution_source="regex_call_parse"
                 )
 
+    # ============================================================
+    # Phase 3: Build Dispatch Implementation Index
+    # ============================================================
 
-    # -----------------------------
-    # FIX: Load full function ONCE
-    # -----------------------------
-    if "__pick_next_task" in symbol_index:
-        full = load_full_function("__pick_next_task")
-        if full:
-            symbol_index["__pick_next_task"]["code"] = full
+    ops_index = build_dispatch_index(
+        symbol_index,
+        profile
+    )
 
-    for key, entry in symbol_index.items():
+    print(
+        f"Dispatch implementation fields discovered: "
+        f"{len(ops_index)}"
+    )
 
-        symbol = entry["symbol"].strip()
+    # ============================================================
+    # Phase 4: Resolve Function Pointer Dispatches
+    # ============================================================
 
-        full_code = entry["code"]
+    resolve_dispatch_edges(
+        semantic_graph,
+        symbol_index,
+        ops_index,
+        profile
+    )
 
-        if profile.requires_dispatch_analysis(symbol):
-            #loaded = load_full_function(symbol)
-            if symbol.endswith("_sched_class"):
-                loaded = load_full_definition(symbol)
-            else:
-                loaded = load_full_function(symbol)
 
-            if loaded:
-                full_code = loaded
-                #if symbol == "__pick_next_task":
-                #    print(full_code[:3000])
-                matches = ops_assign_pattern.findall(full_code)
-
-                for field, impl in matches:
-                    if field in VALID_OPS:
-                        ops_index.setdefault(field, set()).add(impl)
-
-        matches = [
-            (obj.strip(), fn.strip())
-            for obj, fn in fp_pattern.findall(full_code)
-            if fn not in IGNORE_CALLS
-        ]
-
-        #yashcache
-        # The fp_call_graph needs to be modified to bring in semanticedge
-        #yashtbd
-        if matches:
-            fp_call_graph[symbol.strip()] = list(set(matches))
-            # create semantic edges for function pointer dispatches
-
-            for obj, method in matches:
-
-                if method not in ops_index:
-                    continue
-
-                implementations = ops_index[method]
-
-                for impl in implementations:
-
-                    if impl.lower() in symbol_index:
-                        impl_file = symbol_index[impl.lower()]["file"]
-                    else:
-                        impl_file = "unknown"
-                    dst_symbol_id = semantic_graph.resolve_symbol_by_name(impl)
-
-                    if not dst_symbol_id:
-                        continue
-                    # dst_symbol_id = semantic_graph.register_symbol(
-                    #     name=impl,
-                    #     file_path=impl_file,
-                    #     line=0,
-                    #     kind="function"
-                    # )
-                    if impl in profile.low_signal_calls:
-                        confidence = 0.1
-                    else:
-                        confidence = 1.0
-                    current_src_symbol_id = (
-                        semantic_graph.resolve_symbol_by_name(
-                            symbol
-                        )
-                    )
-                    semantic_graph.register_semantic_edge(
-                        src_symbol_id=current_src_symbol_id,
-
-                        dst_symbol_id=dst_symbol_id,
-
-                        edge_type=EdgeType.FUNCTION_POINTER_DISPATCH,
-
-                        confidence=confidence,
-
-                        resolution_source="ops_dispatch_parse",
-
-                        is_deterministic=False
-                    )
     # --------------------------------------------------------
     # Inject Synthetic Scheduler Continuations
     # --------------------------------------------------------
@@ -1152,13 +1276,18 @@ def compile_semantic_ir(profile):
         )
 
 
-    return (
-        # call_graph,
-        # fp_call_graph,
-        # symbol_index,
-        # ops_index,
-        semantic_graph
+    bundle = SemanticIRBundle(
+        semantic_graph=semantic_graph,
+        symbol_code_index=symbol_code_index,
+        ops_index=ops_index,
+        metadata=generate_semantic_ir_metadata(
+            semantic_graph,
+            profile
+        )
     )
+
+    return bundle
+
 
 def load_full_definition(symbol):
 
@@ -1211,6 +1340,8 @@ def load_full_definition(symbol):
                             ]
 
         except Exception:
+            if DEBUG:
+                print(f"Error loading definition for {symbol} from {full_path}")
             continue
 
     return None
@@ -1273,6 +1404,10 @@ class SubsystemSemanticProfile:
     subsystem_name: str
 
     entrypoints: list[str]
+
+    associated_structs: set[str]
+
+    dispatch_provider_files: List[str]
 
     low_signal_calls: set[str]
 
@@ -1365,77 +1500,23 @@ SCHEDULER_PROFILE = SubsystemSemanticProfile(
         "context_switch": "__switch_to",
 
         "__switch_to": "finish_task_switch",
-    }
+    },
+    associated_structs={
+        "task_struct",
+        "rq",
+        "sched_class",
+        "sched_entity",
+        "cfs_rq",
+        "rt_rq",
+        "dl_rq"
+    },
+    dispatch_provider_files=[
+        "kernel/sched/fair.c",
+        "kernel/sched/rt.c",
+        "kernel/sched/idle.c",
+        "kernel/sched/deadline.c"
+    ]
 )
-"""
-class SubsystemSemanticProfile:
-
-    subsystem_name: str
-
-    entrypoints: list[str]
-
-    low_signal_calls: set[str]
-
-    execution_spine_boost:
-        dict[str, float]
-
-    high_value_transitions:
-        dict[tuple[str, str], float]
-
-    synthetic_bridges:
-        dict[str, str]
-
-    dispatch_patterns:
-        list[str]
-
-    semantic_layers:
-        dict[str, list[str]]
-
-    # These three can also be evolved in the SymbolIdentity layer to
-    # track subsystem-specific metadata and associations
-    root_directories: list[str]
-    associated_structs: set[str]
-    total_symbols: int
-"""
-# ============================================================
-# IR TEST HARNESS
-# ============================================================
-
-def print_runtime_graph(
-    runtime_graph: RuntimeExecutionGraph,
-    semantic_graph: SemanticGraph
-):
-
-    print("\n========== Runtime Execution Graph ==========\n")
-
-    for node_id, node in runtime_graph.nodes.items():
-
-        symbol = semantic_graph.lookup_symbol(
-            node.symbol_id
-        )
-
-        print(
-            f"[CPU {node.cpu}] "
-            f"Depth={node.depth} "
-            f"{symbol.name} "
-            f"({symbol.file_path})"
-        )
-
-    print("\n========== Runtime Edges ==========\n")
-
-    for edge in runtime_graph.edges:
-
-        src = runtime_graph.nodes[edge.src_node_id]
-        dst = runtime_graph.nodes[edge.dst_node_id]
-
-        src_sym = semantic_graph.lookup_symbol(src.symbol_id)
-        dst_sym = semantic_graph.lookup_symbol(dst.symbol_id)
-
-        print(
-            f"{src_sym.name}"
-            f" --> "
-            f"{dst_sym.name}"
-        )
 
 # =================================================================
 # SECTION 4 - Subsystem Profiles of the Linux kernel - Ends
@@ -1464,10 +1545,11 @@ def run_scheduler_semantic_workflow(semantic_graph, profile):
         )
     )
 
-    print_runtime_graph(
+    RuntimeGraphPrinter.print_graph(
         runtime_graph,
         semantic_graph
     )
+    return runtime_graph
 
 
 # =================================================================
@@ -1912,72 +1994,236 @@ def retrieve_code(query):
 
     return docs, metas
 
+#---------------------------------------
+# Prompt builder - Constructs a detailed prompt for
+# the LLM based on the runtime graph, semantic graph,
+# query, and relevant code snippets.
+#---------------------------------------
+def build_runtime_prompt(
+    runtime_graph,
+    semantic_graph,
+    query,
+    profile,
+    symbol_code_index
+):
 
+    MAX_CODE_CHARS = 6000
 
-# -----------------------------
-# Prompt builder
-# -----------------------------
+    runtime_lines = []
+    semantic_lines = []
+    code_blocks = []
 
-def build_prompt(query, docs, subsystem, chain):
+    #
+    # Runtime execution flow
+    #
+    for edge in runtime_graph.edges:
 
-    MAX_CHARS = 12000
-    #context = "\n\n".join(docs)[:MAX_CHARS]
-    trimmed = [d[:1200] if len(d) > 1200 else d for d in docs]
-    context = "\n\n".join(trimmed)
-    chain_text = " → ".join(chain[:6])
+        src_node = runtime_graph.nodes[
+            edge.src_node_id
+        ]
+
+        dst_node = runtime_graph.nodes[
+            edge.dst_node_id
+        ]
+
+        src_symbol = semantic_graph.lookup_symbol(
+            src_node.symbol_id
+        )
+
+        dst_symbol = semantic_graph.lookup_symbol(
+            dst_node.symbol_id
+        )
+
+        context = edge.execution_context.upper()
+
+        runtime_lines.append(
+            f"[{context}] "
+            f"{src_symbol.name} "
+            f" -> "
+            f"{dst_symbol.name}"
+        )
+
+    #
+    # Semantic dispatch edges
+    #
+    for edge in (
+        semantic_graph
+        .semantic_edge_index
+        .values()
+    ):
+
+        if (
+            edge.edge_type !=
+            EdgeType.FUNCTION_POINTER_DISPATCH
+        ):
+            continue
+
+        src_symbol = semantic_graph.lookup_symbol(
+            edge.src_symbol_id
+        )
+
+        dst_symbol = semantic_graph.lookup_symbol(
+            edge.dst_symbol_id
+        )
+
+        semantic_lines.append(
+            f"[DISPATCH] "
+            f"{src_symbol.name} "
+            f"-> "
+            f"{dst_symbol.name}"
+        )
+
+    #
+    # Collect code for runtime symbols
+    #
+    seen = set()
+
+    for node in runtime_graph.nodes.values():
+
+        symbol = semantic_graph.lookup_symbol(
+            node.symbol_id
+        )
+
+        if symbol.name in seen:
+            continue
+
+        seen.add(symbol.name)
+
+        code = symbol_code_index.get(
+            symbol.name
+        )
+
+        if not code:
+            continue
+
+        code_blocks.append(
+            f"FILE: {symbol.file_path}\n"
+            f"SYMBOL: {symbol.name}\n\n"
+            f"{code[:600]}"
+        )
+
+    code_context = "\n\n".join(
+        code_blocks
+    )[:MAX_CODE_CHARS]
+
+    runtime_text = "\n".join(runtime_lines)
+
+    semantic_text = "\n".join(semantic_lines)
 
     prompt = f"""
 You are a senior Linux kernel engineer.
 
-The question relates to the Linux kernel **{subsystem} domain**.
-
 QUESTION:
 {query}
 
-KERNEL CODE:
-{context}
+SUBSYSTEM:
+{profile.subsystem_name}
 
-DETECTED CALL FLOW:
-{chain_text}
+RUNTIME EXECUTION FLOW:
+{runtime_text}
+
+SEMANTIC DISPATCH FLOW:
+{semantic_text}
+
+RELEVANT KERNEL CODE:
+{code_context}
 
 Instructions:
 
-1. Identify the relevant functions and their roles.
-2. Explain how the call chain works.
-3. Describe kernel state changes (task state, runqueue, CPU idle, etc).
-4. Explain how the {subsystem} subsystem interacts with the scheduler or kernel.
-5. Summarize the behavior clearly.
-
-Use only the provided code. Avoid generic OS explanations.
-Focus on the actual Linux kernel execution path.
-Do not speculate beyond the code provided.
+1. Explain the actual runtime execution path.
+2. Explain scheduler/runtime state transitions.
+3. Explain indirect dispatch behavior.
+4. Distinguish direct calls from polymorphic dispatch.
+5. Explain subsystem interactions.
+6. Explain why the runtime path evolves this way.
+7. Use the semantic dispatch flow when describing scheduler class behavior.
+8. Avoid generic Operating System explanations
+9. Use only the provided runtime graph and kernel code.
+10. Only describe mechanisms explicitly visible in the runtime graph or provided code.
+11. Focus on Linux kernel specifics and execution behavior.
 """
 
     return prompt
 
+#---------------------------------------
+# LLM call - Sends the constructed prompt
+# to the LLM and returns the response.
+#---------------------------------------
+def ask_llm(
+    prompt,
+    model="qwen2.5-coder:7b",
+    temperature=0.1,
+    num_predict=1200,
+    debug=False
+):
 
-# -----------------------------
-# LLM call
-# -----------------------------
+    if DEBUG:
+        print(
+            "PROMPT SIZE:",
+            len(prompt)
+        )
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": num_predict,
+        }
+    }
 
-def ask_llm(prompt, model="qwen2.5-coder:7b"):
+    if DEBUG:
+
+        print("\n========== LLM PROMPT ==========\n")
+
+        print(prompt[:12000])
+
+        print("\n========== END PROMPT ==========\n")
 
     try:
+
         response = requests.post(
             OLLAMA_URL,
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False
-            },
+            json=payload,
             timeout=300
         )
 
         response.raise_for_status()
-        return response.json()["response"]
+
+        data = response.json()
+
+        answer = data.get(
+            "response",
+            ""
+        ).strip()
+
+        if DEBUG:
+
+            print("\n========== LLM RESPONSE ==========\n")
+
+            print(answer)
+
+            print("\n=================================\n")
+
+        return answer
 
     except requests.exceptions.Timeout:
-        return "LLM timed out. Try reducing retrieved code size."
+
+        return (
+            "LLM timed out. "
+            "Try reducing runtime graph size."
+        )
+
+    except requests.exceptions.ConnectionError:
+
+        return (
+            "Could not connect to Ollama."
+        )
+
+    except Exception as e:
+
+        return f"LLM error: {str(e)}"
+
 
 # -----------------------------
 # Entry point mapping
@@ -1995,35 +2241,6 @@ def get_entry_point(symbol, domains):
 
     return symbol
 
-# -----------------------------
-# Mermaid call graph export
-# -----------------------------
-# LEGACY - Will convert toMermaidGraphExporter which is the semantic graph exporter - yashtbd
-def export_execution_path(path, domains, query):
-
-    base_dir = "callgraphs"
-    domain_name = "_".join(domains)
-
-    folder = os.path.join(base_dir, domain_name)
-    os.makedirs(folder, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    filename = f"{domain_name}_{timestamp}.mmd"
-    filepath = os.path.join(folder, filename)
-
-    with open(filepath, "w") as f:
-
-        f.write("graph TD\n")
-        f.write(f"%% Query: {query}\n")
-
-        for i in range(len(path) - 1):
-
-            a = path[i].replace("-", "_")
-            b = path[i+1].replace("-", "_")
-            f.write(f"  {a} --> {b}\n")
-
-    print(f"Execution path written to {filepath}")
 
 
 # -----------------------------
@@ -2094,157 +2311,9 @@ def test_real_scheduler_runtime(
     # Print Runtime Graph
     # --------------------------------------------------------
 
-    print_runtime_graph(
+    RuntimeGraphPrinter.print_graph(
         runtime_graph,
         semantic_graph
-    )
-
-# --------------------------------------------------------
-# This test function constructs a minimal semantic graph for the scheduler subsystem
-# and validates that the RuntimeExecutionEngine can reconstruct the expected execution path.
-# --------------------------------------------------------
-# DEBUG/DEVELOPMENT FUNCTION - yashtbd
-def test_scheduler_semantic_ir():
-
-    graph = SemanticGraph()
-
-    # --------------------------------------------------------
-    # Register Scheduler Symbols
-    # --------------------------------------------------------
-
-    schedule_id = graph.register_symbol(
-        name="schedule",
-        file_path="kernel/sched/core.c",
-        line=5000,
-        kind="function"
-    )
-
-    __schedule_id = graph.register_symbol(
-        name="__schedule",
-        file_path="kernel/sched/core.c",
-        line=5100,
-        kind="function"
-    )
-
-    pick_next_task_id = graph.register_symbol(
-        name="pick_next_task",
-        file_path="kernel/sched/core.c",
-        line=5200,
-        kind="function"
-    )
-
-    __pick_next_task_id = graph.register_symbol(
-        name="__pick_next_task",
-        file_path="kernel/sched/core.c",
-        line=5300,
-        kind="function"
-    )
-
-    pick_next_task_fair_id = graph.register_symbol(
-        name="pick_next_task_fair",
-        file_path="kernel/sched/fair.c",
-        line=8100,
-        kind="function"
-    )
-
-    context_switch_id = graph.register_symbol(
-        name="context_switch",
-        file_path="kernel/sched/core.c",
-        line=9000,
-        kind="function"
-    )
-
-    __switch_to_id = graph.register_symbol(
-        name="__switch_to",
-        file_path="arch/x86/kernel/process.c",
-        line=700,
-        kind="function"
-    )
-
-    finish_task_switch_id = graph.register_symbol(
-        name="finish_task_switch",
-        file_path="kernel/sched/core.c",
-        line=9200,
-        kind="function"
-    )
-
-    # --------------------------------------------------------
-    # Register Semantic Edges
-    # --------------------------------------------------------
-
-    graph.register_semantic_edge(
-        schedule_id,
-        __schedule_id,
-        EdgeType.DIRECT_CALL,
-        1.0,
-        "direct_call"
-    )
-
-    graph.register_semantic_edge(
-        __schedule_id,
-        pick_next_task_id,
-        EdgeType.DIRECT_CALL,
-        1.0,
-        "direct_call"
-    )
-
-    graph.register_semantic_edge(
-        pick_next_task_id,
-        __pick_next_task_id,
-        EdgeType.DIRECT_CALL,
-        1.0,
-        "direct_call"
-    )
-
-    graph.register_semantic_edge(
-        __pick_next_task_id,
-        pick_next_task_fair_id,
-        EdgeType.FUNCTION_POINTER_DISPATCH,
-        0.95,
-        "sched_class_dispatch"
-    )
-
-    graph.register_semantic_edge(
-        pick_next_task_fair_id,
-        context_switch_id,
-        EdgeType.SYNTHETIC_BRIDGE,
-        1.0,
-        "scheduler_semantic_bridge"
-    )
-
-    graph.register_semantic_edge(
-        context_switch_id,
-        __switch_to_id,
-        EdgeType.SYNTHETIC_BRIDGE,
-        1.0,
-        "context_switch_continuation"
-    )
-
-    graph.register_semantic_edge(
-        __switch_to_id,
-        finish_task_switch_id,
-        EdgeType.SYNTHETIC_BRIDGE,
-        1.0,
-        "switch_to_continuation"
-    )
-
-    # --------------------------------------------------------
-    # Runtime Reconstruction
-    # --------------------------------------------------------
-
-    runtime_engine = RuntimeExecutionEngine(graph)
-
-    runtime_graph = (
-        runtime_engine.reconstruct_execution_path(
-            start_symbol_id=schedule_id,
-            cpu=0,
-            max_depth=16
-        )
-    )
-
-    print_runtime_graph(
-        runtime_graph,
-        graph
     )
 
 def run_subsystem_workflow(semantic_graph, profile):
@@ -2255,10 +2324,8 @@ def run_subsystem_workflow(semantic_graph, profile):
             profile
         )
 
-#def build_runtime_prompt(runtime_graph, semantic_graph, query):
-
 def main():
-    global ACTIVE_PROFILE, ACTIVE_SEMANTIC_GRAPH
+    global ACTIVE_PROFILE, ACTIVE_SEMANTIC_BUNDLE
     if not IS_ACTIVE:
         print(f"\n[!] CANNOT CONNECT TO OLLAMA AT {OLLAMA_HOST}")
         print("-" * 50)
@@ -2287,41 +2354,47 @@ def main():
 
         print(f"\n[Profile Detected]: {profile.subsystem_name}\n")
         if (
-            ACTIVE_SEMANTIC_GRAPH is not None
+            ACTIVE_SEMANTIC_BUNDLE is not None
             and
             ACTIVE_PROFILE == profile.subsystem_name
         ):
-            semantic_graph = ACTIVE_SEMANTIC_GRAPH
+            semantic_graph = ACTIVE_SEMANTIC_BUNDLE.semantic_graph
+            symbol_code_index = ACTIVE_SEMANTIC_BUNDLE.symbol_code_index
             print("✅ Reusing active semantic graph from session")
-            
+
         elif semantic_ir_cache_valid(profile):
 
             print("✅ Loading semantic cache...")
             start = time.time()
-            semantic_graph = (
-                SemanticGraph.load_semantic_ir(
-                    SEMANTIC_IR_FILE
-                )
-            )
+            # semantic_graph = (
+            #     SemanticGraph.load_semantic_ir(
+            #         SEMANTIC_IR_FILE
+            #     )
+            # )
+            bundle = SemanticIRBundle.load_semantic_ir_bundle()
+
+            semantic_graph = bundle.semantic_graph
+            symbol_code_index = bundle.symbol_code_index
             ACTIVE_PROFILE = profile.subsystem_name
-            ACTIVE_SEMANTIC_GRAPH = semantic_graph
+            ACTIVE_SEMANTIC_BUNDLE = bundle
             print(f"✅ Semantic cache loaded in {time.time() - start:.2f} seconds")
 
         else:
             print("⚙️ Building semantic graphs...")
             start = time.time()
-            semantic_graph = compile_semantic_ir(
-                profile
-            )
+            semantic_bundle = compile_semantic_ir(profile)
+
+            semantic_graph = semantic_bundle.semantic_graph
+            symbol_code_index = semantic_bundle.symbol_code_index
+
             print(f"⚙️ Semantic graphs built in {time.time() - start:.2f} seconds")
 
             ACTIVE_PROFILE = profile.subsystem_name
-            ACTIVE_SEMANTIC_GRAPH = semantic_graph
+            ACTIVE_SEMANTIC_BUNDLE = semantic_bundle
 
             print("⚙️ Saving semantic graphs...")
-            semantic_graph.save_semantic_ir(
-                SEMANTIC_IR_FILE,
-                profile
+            SemanticIRBundle.save_semantic_ir_bundle(
+                semantic_bundle,
             )
             print("⚙️ Saving semantic graphs completed...")
 
@@ -2331,18 +2404,26 @@ def main():
             print(semantic_graph.semantic_ir_stats())
         print("\nKernel Flow Explorer ready.")
 
-        run_scheduler_semantic_workflow(semantic_graph, profile)
+        runtime_graph = run_scheduler_semantic_workflow(semantic_graph, profile)
+        print("Exporting Mermaid runtime graph...")
+        MermaidGraphExporter.export_runtime_graph(runtime_graph, semantic_graph, profile)
+        print("Mermaid export completed. Check the 'exports' directory.")
 
-        # MermaidGraphExporter.export_runtime_graph()
+        runtime_prompt = build_runtime_prompt(
+            runtime_graph, semantic_graph, query, profile, symbol_code_index)
 
-        # build_runtime_prompt(runtime_graph, semantic_graph, query)
+        answer = ask_llm(
+            prompt=runtime_prompt,
+            model="qwen2.5-coder:7b", #profile.preferred_model,
+            temperature=0.1,
+            num_predict=1200,
+            debug=False
+        )
 
-        # answer = ask_llm(prompt)
+        print("\n*********************** Answer from the LLM ************************\n")
+        print(answer)
 
-        # print("\n*********************** Answer from the LLM ************************\n")
-        # print(answer)
-
-#############################
+    #############################
 # -----------------------------
 # Main loop
 # -----------------------------

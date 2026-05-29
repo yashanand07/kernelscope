@@ -59,8 +59,7 @@ cd linux
 ## � 5. Generate Tags (ctags)
 
 ```bash
-ctags -R .
-ctags -R --languages=C --kinds-C=f --fields=+n
+ctags   --languages=C   --kinds-C=+p+x+v   --fields=+iaS   --extras=+q   -R .
 ```
 
 This creates a large `tags` file used for symbol lookup.
