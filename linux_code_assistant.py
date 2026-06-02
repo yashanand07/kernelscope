@@ -18,6 +18,37 @@ Uses:
 """
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
+from runtime_reconstruction.implementation_descent import (
+    reconstruct_implementation_path
+)
+from runtime_reconstruction.runtime_spine import (
+    reconstruct_runtime_spine
+)
+
+from runtime_reconstruction.dispatch_analysis import (
+    reconstruct_dispatch_path
+)
+
+from runtime_reconstruction.full_branch_expansion import (
+    reconstruct_full_branch_path
+)
+from profiles.subsystem_profile import (
+    SubsystemSemanticProfile
+)
+from profiles.scheduler_profile import (
+    SCHEDULER_PROFILE
+)
+from semantic_runtime.traversal_modes import (
+    TraversalMode
+)
+from semantic_runtime.ontology import (
+    SemanticEdgeType
+)
+from semantic_runtime.runtime_graph import (
+    RuntimeExecutionGraph,
+    ExecutionNode,
+    ExecutionEdge
+)
 from enum import Enum
 from hashlib import sha1
 from typing import Dict, List, Optional, Set, Any
@@ -40,6 +71,8 @@ import time
 import platform
 import pickle
 
+MAX_DEPTH = 8
+MAX_RUNTIME_NODES = 8
 DEBUG = False
 LINUX_ROOT = os.environ.get(
     "LINUX_ROOT",
@@ -50,17 +83,8 @@ ACTIVE_SEMANTIC_BUNDLE = None
 CURRENT_IR_VERSION = 1
 
 
-# ============================================================
-# ENUMS
-# ============================================================
 
-class EdgeType(Enum):
-    DIRECT_CALL = "DIRECT_CALL"
-    FUNCTION_POINTER_DISPATCH = "FUNCTION_POINTER_DISPATCH"
-    SYNTHETIC_BRIDGE = "SYNTHETIC_BRIDGE"
-    ASYNC_WAKEUP = "ASYNC_WAKEUP"
-    INTERRUPT_ENTRY = "INTERRUPT_ENTRY"
-    INTERRUPT_EXIT = "INTERRUPT_EXIT"
+
 
 
 CACHE_DIR = "semantic_cache"
@@ -119,7 +143,7 @@ class SemanticEdge:
     src_symbol_id: str
     dst_symbol_id: str
 
-    edge_type: EdgeType
+    edge_type: SemanticEdgeType
 
     confidence: float
 
@@ -185,7 +209,7 @@ class SemanticGraph:
     def generate_edge_id(
         src_symbol_id: str,
         dst_symbol_id: str,
-        edge_type: EdgeType
+        edge_type: SemanticEdgeType
     ) -> str:
 
         edge_seed = (
@@ -270,7 +294,7 @@ class SemanticGraph:
         self,
         src_symbol_id: str,
         dst_symbol_id: str,
-        edge_type: EdgeType,
+        edge_type: SemanticEdgeType,
         confidence: float,
         resolution_source: str,
         is_deterministic: bool = True
@@ -414,7 +438,7 @@ class SemanticGraph:
         count = 0
         for edges in self.semantic_edges_by_src.values():
             for edge in edges:
-                if edge.edge_type == EdgeType.FUNCTION_POINTER_DISPATCH:
+                if edge.edge_type == SemanticEdgeType.FUNCTION_POINTER_DISPATCH:
                     count += 1
         dispatch_edge_count = count
         if DEBUG:
@@ -429,7 +453,7 @@ class SemanticGraph:
         count = 0
         for edges in self.semantic_edges_by_src.values():
             for edge in edges:
-                if edge.edge_type == EdgeType.SYNTHETIC_BRIDGE:
+                if edge.edge_type == SemanticEdgeType.SYNTHETIC_CONTINUATION :
                     count += 1
         if DEBUG:
             print(
@@ -497,55 +521,6 @@ class SemanticGraph:
 # SECTION 1 - SEMANTIC IR CORE DEFINITIONS - Ends
 # ============================================================
 
-# ============================================================
-# SECTION 2 - RUNTIME EXECUTION LAYER - Starts
-# ============================================================
-"""
-Contains:
-
-RuntimeExecutionEngine
-ExecutionNode
-ExecutionEdge
-"""
-# --------------------------------------------------------
-# Execution Graph Layer
-# --------------------------------------------------------
-
-@dataclass(slots=True)
-class ExecutionNode:
-    node_id: str
-
-    symbol_id: str
-
-    cpu: Optional[int]
-
-    context: str
-
-    timestamp: Optional[int]
-
-    depth: int
-
-# --------------------------------------------------------
-# Execution Edge Layer
-# --------------------------------------------------------
-
-@dataclass(slots=True)
-class ExecutionEdge:
-    src_node_id: str
-    dst_node_id: str
-
-    semantic_edge_id: Optional[str]
-
-    execution_context: str
-
-# --------------------------------------------------------
-# Runtime Execution Graph
-# --------------------------------------------------------
-@dataclass(slots=True)
-class RuntimeExecutionGraph:
-    nodes: Dict[str, ExecutionNode] = field(default_factory=dict)
-
-    edges: List[ExecutionEdge] = field(default_factory=list)
 
 # --------------------------------------------------------
 # Runtime Execution Engine - reconstructs execution paths using the semantic graph and heuristics
@@ -578,127 +553,7 @@ class RuntimeExecutionEngine:
 
         return sha1(seed.encode()).hexdigest()
 
-    #--------------------------------------------------------
-    # Reconstructs a plausible execution path starting from a
-    # given symbol, using the semantic graph and heuristics.
-    #--------------------------------------------------------
-    def reconstruct_execution_path(
-        self,
-        start_symbol_id: str,
-        cpu: int,
-        max_depth: int = 16
-    ) -> RuntimeExecutionGraph:
-
-        runtime_graph = RuntimeExecutionGraph()
-
-        # To prevent cycles and redundant paths, we maintain a set of visited symbols.
-        visited_symbols = set()
-
-        current_symbol_id = start_symbol_id
-
-        previous_node_id = None
-
-        for depth in range(max_depth):
-
-            # To avoid infinite loops in cases where the semantic
-            # graph has cycles or redundant edges
-            if current_symbol_id in visited_symbols:
-                break
-
-            visited_symbols.add(current_symbol_id)
-
-            node_id = self.generate_execution_node_id(
-                symbol_id=current_symbol_id,
-                cpu=cpu,
-                depth=depth,
-                context="process_context"
-            )
-
-            node = ExecutionNode(
-                node_id=node_id,
-
-                symbol_id=current_symbol_id,
-
-                cpu=cpu,
-
-                context="process_context",
-
-                timestamp=None,
-
-                depth=depth
-            )
-
-            runtime_graph.nodes[node_id] = node
-
-            # ------------------------------------------------
-            # Link Previous Runtime Node
-            # ------------------------------------------------
-
-            if previous_node_id is not None:
-
-                runtime_graph.edges.append(
-                    ExecutionEdge(
-                        src_node_id=previous_node_id,
-
-                        dst_node_id=node_id,
-
-                        semantic_edge_id=selected_edge.edge_id,
-
-                        execution_context="scheduler_path"
-                    )
-                )
-
-            # ------------------------------------------------
-            # Pull Semantic Transitions
-            # ------------------------------------------------
-
-            outgoing_edges = (
-                self.semantic_graph.get_outgoing_edges(
-                    current_symbol_id
-                )
-            )
-
-            if not outgoing_edges:
-                break
-
-            # Select the most confident outgoing transition from the semantic graph.
-            # Edges are sorted by confidence and determinism in register_semantic_edge().
-            selected_edge = outgoing_edges[0]
-
-            next_symbol_id = (
-                selected_edge.dst_symbol_id
-            )
-
-            next_node_id = self.generate_execution_node_id(
-                symbol_id=next_symbol_id,
-                cpu=cpu,
-                depth=depth + 1,
-                context="process_context"
-            )
-
-            next_node = ExecutionNode(
-                node_id=next_node_id,
-                symbol_id=next_symbol_id,
-                cpu=cpu,
-                context="process_context",
-                timestamp=None,
-                depth=depth + 1
-            )
-
-            runtime_graph.nodes[next_node_id] = next_node
-
-            runtime_graph.edges.append(
-                ExecutionEdge(
-                    src_node_id=node_id,
-                    dst_node_id=next_node_id,
-                    semantic_edge_id=selected_edge.edge_id,
-                    execution_context="scheduler_path"
-                )
-            )
-
-            current_symbol_id = next_symbol_id
-        return runtime_graph
-
+   
 # ============================================================
 # SECTION 2 - Runtime Execution Layer - Ends
 # ============================================================
@@ -1013,35 +868,22 @@ def build_dispatch_index(
         symbol = entry["symbol"].strip()
 
         loaded = entry["code"]
-        if DEBUG and symbol.endswith("_sched_class"):
-            print("\n=== RAW LOADED ===")
-            print(loaded[:4000])
-
-            print("\n=== REGEX ===")
-            print(ops_assign_pattern.pattern)
 
         if not profile.requires_dispatch_analysis(symbol):
             continue
 
-        if not symbol.endswith("_sched_class"):
+        provider_pattern = (
+            profile.resolve_provider_pattern(symbol)
+        )
+
+        if provider_pattern is None:
             continue
-
-        if DEBUG:
-            print("\n=== PROVIDER SYMBOL ===")
-            print(symbol)
-
-            print("\n=== SCHED CLASS DEF ===")
-            print(loaded[:4000])
 
         matches = ops_assign_pattern.findall(loaded)
 
-        if DEBUG:
-            print("\n=== OPS MATCHES ===")
-            print(matches[:50])
-
         for field, impl in matches:
 
-            if field in VALID_OPS:
+            if field in VALID_OPS: #yashtbd To be changed to VALID_DISPATCH_OPERATIONS
                 ops_index.setdefault(field, set()).add(impl)
 
     return ops_index
@@ -1053,7 +895,7 @@ def resolve_dispatch_edges(
     ops_index,
     profile
 ):
-    
+
     for key, entry in symbol_index.items():
 
         symbol = entry["symbol"].strip()
@@ -1116,7 +958,7 @@ def resolve_dispatch_edges(
 
                         dst_symbol_id=dst_symbol_id,
 
-                        edge_type=EdgeType.FUNCTION_POINTER_DISPATCH,
+                        edge_type=SemanticEdgeType.FUNCTION_POINTER_DISPATCH,
 
                         confidence=confidence,
 
@@ -1204,7 +1046,7 @@ def compile_semantic_ir(profile):
                 semantic_graph.register_semantic_edge(
                     src_symbol_id=current_src_symbol_id,
                     dst_symbol_id=dst_symbol_id,
-                    edge_type=EdgeType.DIRECT_CALL,
+                    edge_type=SemanticEdgeType.DIRECT_CALL,
                     confidence=confidence,
                     resolution_source="regex_call_parse"
                 )
@@ -1266,7 +1108,7 @@ def compile_semantic_ir(profile):
 
             dst_symbol_id=dst_id,
 
-            edge_type=EdgeType.SYNTHETIC_BRIDGE,
+            edge_type=SemanticEdgeType.SYNTHETIC_CONTINUATION ,
 
             confidence=confidence,
 
@@ -1398,173 +1240,124 @@ def load_full_function(symbol):
 # SUBSYSTEM PROFILES - scheduler, irq, mm, driver etc
 # --------------------------------------------------------
 
-@dataclass
-class SubsystemSemanticProfile:
 
-    subsystem_name: str
 
-    entrypoints: list[str]
 
-    associated_structs: set[str]
-
-    dispatch_provider_files: List[str]
-
-    low_signal_calls: set[str]
-
-    execution_spine_boost: dict[str, float]
-
-    high_value_transitions: dict[
-        tuple[str, str],
-        float
-    ]
-
-    synthetic_bridges: dict[str, str]
-
-    def requires_dispatch_analysis(
-        self,
-        symbol: str
-    ) -> bool:
-
-        return (
-            "sched" in symbol
-            or
-            "pick_next_task" in symbol
-            or
-            "enqueue_task" in symbol
-            or
-            "dequeue_task" in symbol
-            or
-            symbol.endswith("_sched_class")
-        )
 
 def determine_subsystem_profile(query: str):
     if "sched" in query.lower():
         return SCHEDULER_PROFILE
 
-SCHEDULER_PROFILE = SubsystemSemanticProfile(
-    subsystem_name="kernel/sched",
 
-    entrypoints=["schedule", "try_to_wake_up", "wake_up_process"],
-
-    low_signal_calls = {
-        "lockdep_assert",
-        "task_is_running",
-        "schedstat_inc",
-        "trace_sched_switch",
-        "rcu_note_context_switch",
-        "might_sleep",
-        "preempt_disable",
-        "preempt_enable",
-        "WARN_ON",
-    },
-
-    execution_spine_boost = {
-        "schedule": 10.0,
-        "__schedule": 10.0,
-        "pick_next_task": 10.0,
-        "__pick_next_task": 10.0,
-        "pick_next_task_fair": 10.0,
-        "context_switch": 10.0,
-        "__switch_to": 10.0,
-        "finish_task_switch": 10.0,
-        "__schedule_loop": 10.0,
-    },
-
-    high_value_transitions = {
-        ("schedule", "__schedule"): 20.0,
-
-        ("__schedule", "pick_next_task"): 20.0,
-
-        ("pick_next_task", "__pick_next_task"): 20.0,
-
-        ("__pick_next_task", "pick_next_task_fair"): 20.0,
-
-        ("pick_next_task_fair", "context_switch"): 20.0,
-
-        ("context_switch", "__switch_to"): 20.0,
-
-        ("__switch_to", "finish_task_switch"): 20.0,
-        ("schedule", "__schedule_loop"): 20.0,
-        ("__schedule_loop", "__schedule"): 20.0,
-    },
-
-    # These are manually curated edges that we know exist but are not easily
-    # detectable through regex parsing due to indirect calls, function pointer
-    # dispatches, or complex control flow. They help bridge gaps in the semantic
-    # graph and enable more complete execution path reconstruction.
-    synthetic_bridges = {
-        "pick_next_task_fair": "context_switch",
-        "pick_next_task_rt": "context_switch",
-        "pick_next_task_idle": "context_switch",
-
-        "context_switch": "__switch_to",
-
-        "__switch_to": "finish_task_switch",
-    },
-    associated_structs={
-        "task_struct",
-        "rq",
-        "sched_class",
-        "sched_entity",
-        "cfs_rq",
-        "rt_rq",
-        "dl_rq"
-    },
-    dispatch_provider_files=[
-        "kernel/sched/fair.c",
-        "kernel/sched/rt.c",
-        "kernel/sched/idle.c",
-        "kernel/sched/deadline.c"
-    ]
-)
 
 # =================================================================
 # SECTION 4 - Subsystem Profiles of the Linux kernel - Ends
 # =================================================================
 
-def run_scheduler_semantic_workflow(semantic_graph, profile):
-    print("[workflow] scheduler")
+def run_semantic_workflow(
+    semantic_graph,
+    profile,
+    traversal_mode
+):
 
     runtime_engine = RuntimeExecutionEngine(
         semantic_graph
     )
 
+    # Resolve subsystem entrypoint
+    entrypoint = profile.entrypoints[0]
+
     start_symbol_id = (
         semantic_graph.resolve_symbol_by_name(
-            "schedule"
+            entrypoint
         )
     )
 
-    runtime_graph = (
-        runtime_engine.reconstruct_execution_path(
-            start_symbol_id=start_symbol_id,
-
-            cpu=0,
-
-            max_depth=16
+    if not start_symbol_id:
+        raise RuntimeError(
+            f"Unable to resolve entrypoint: "
+            f"{entrypoint}"
         )
-    )
+
+    # Runtime Spine Traversal
+    if (
+        traversal_mode ==
+        TraversalMode.RUNTIME_SPINE
+    ):
+        runtime_graph = (
+            reconstruct_runtime_spine(
+                runtime_engine=runtime_engine,
+                profile=profile,
+                start_symbol_id=start_symbol_id,
+                cpu=0,
+                max_depth=MAX_DEPTH
+            )
+        )
+
+    # Implementation Descent
+    elif (
+        traversal_mode ==
+        TraversalMode.IMPLEMENTATION_DESCENT
+    ):
+        runtime_graph = (
+            reconstruct_implementation_path(
+                runtime_engine=runtime_engine,
+                profile=profile,
+                start_symbol_id=start_symbol_id,
+                cpu=0,
+                max_depth=MAX_DEPTH
+            )
+        )
+
+    #
+    # Dispatch Analysis
+    #
+    elif (
+        traversal_mode ==
+        TraversalMode.DISPATCH_ANALYSIS
+    ):
+        runtime_graph = (
+            reconstruct_dispatch_path(
+                runtime_engine=runtime_engine,
+                profile=profile,
+                start_symbol_id=start_symbol_id,
+                cpu=0,
+                max_depth=MAX_DEPTH
+            )
+        )
+
+    # Full Branch Expansion
+    elif (
+        traversal_mode ==
+        TraversalMode.FULL_BRANCH_EXPANSION
+    ):
+        runtime_graph = (
+            reconstruct_full_branch_path(
+                runtime_engine=runtime_engine,
+                profile=profile,
+                start_symbol_id=start_symbol_id,
+                cpu=0,
+                max_depth=MAX_DEPTH
+            )
+        )
+
+    else:
+        raise RuntimeError(
+            f"Unsupported traversal mode: "
+            f"{traversal_mode}"
+        )
 
     RuntimeGraphPrinter.print_graph(
         runtime_graph,
         semantic_graph
     )
+
     return runtime_graph
 
 
 # =================================================================
 # 3. KERNEL HEURISTICS & TEMPLATES
 # =================================================================
-
-INDIRECT_CALL_HINTS = (
-    "->",
-    ".pick_next_task",
-    ".enqueue_task",
-    ".dequeue_task",
-    ".check_preempt_curr",
-    ".select_task_rq",
-    ".task_tick",
-)
 
 VALID_OPS = {
     "pick_next_task",
@@ -1574,104 +1367,6 @@ VALID_OPS = {
     "check_preempt_curr",
     "yield_task",
     "wakeup_preempt",
-}
-
-ENTRY_POINT_MAP = {
-    "context_switch": "schedule",
-    "__schedule": "schedule",
-    "try_to_wake_up": "wake_up_process",
-    "ttwu_queue": "wake_up_process",
-    "__switch_to": "schedule",
-    # interrupt aliases
-    "arch_show_interrupts": "do_IRQ",
-    "spurious_interrupt": "do_IRQ",
-    "handle_badint": "do_IRQ",
-}
-
-SCHED_PATH = [
-    "schedule",
-    "__schedule",
-    "pick_next_task",
-    "context_switch",
-    "__switch_to",
-    "finish_task_switch"
-]
-
-KERNEL_EXECUTION_TEMPLATES = {
-
-    "scheduler": [
-        "schedule",
-        "__schedule",
-        "pick_next_task",
-        "context_switch",
-        "__switch_to",
-        "finish_task_switch"
-    ],
-
-    "wakeup": [
-        "try_to_wake_up",
-        "ttwu_queue",
-        "ttwu_do_activate",
-        "activate_task",
-        "enqueue_task",
-        "check_preempt_curr"
-    ],
-
-    "futex": [
-        "futex_wake",
-        "try_to_wake_up",
-        "ttwu_queue",
-        "ttwu_do_activate",
-        "activate_task"
-    ],
-
-    "interrupt": [
-        "generic_handle_irq",
-        "handle_irq_desc",
-        "handle_irq_event",
-        "handle_irq_event_percpu",
-        #"irq_handler"
-    ],
-
-    "softirq": [
-        "__do_softirq",
-        "run_timer_softirq",
-        "hrtimer_interrupt"
-    ],
-
-    "timer": [
-        "hrtimer_interrupt",
-        "__hrtimer_run_queues",
-        "run_timer_softirq"
-    ],
-
-    "workqueue": [
-        "process_one_work",
-        "worker_thread",
-        "schedule"
-    ],
-
-    "syscall": [
-        "do_syscall_64",
-        "syscall_enter_from_user_mode",
-        "invoke_syscall",
-        "syscall_exit_to_user_mode"
-    ],
-
-    "memory": [
-        "handle_mm_fault",
-        "__handle_mm_fault",
-        "do_fault",
-        "handle_pte_fault"
-    ],
-
-    "interrupt_entry": [
-        "idtentry",
-        "do_IRQ",
-        "common_interrupt",
-        "irq_enter",
-        "generic_handle_irq"
-    ]
 }
 
 # -----------------------------
@@ -2054,7 +1749,7 @@ def build_runtime_prompt(
 
         if (
             edge.edge_type !=
-            EdgeType.FUNCTION_POINTER_DISPATCH
+            SemanticEdgeType.FUNCTION_POINTER_DISPATCH
         ):
             continue
 
@@ -2078,7 +1773,11 @@ def build_runtime_prompt(
     #
     seen = set()
 
-    for node in runtime_graph.nodes.values():
+    runtime_nodes = list(
+        runtime_graph.nodes.values()
+    )[:MAX_RUNTIME_NODES]
+
+    for node in runtime_nodes:
 
         symbol = semantic_graph.lookup_symbol(
             node.symbol_id
@@ -2139,8 +1838,13 @@ Instructions:
 7. Use the semantic dispatch flow when describing scheduler class behavior.
 8. Avoid generic Operating System explanations
 9. Use only the provided runtime graph and kernel code.
-10. Only describe mechanisms explicitly visible in the runtime graph or provided code.
+10. Do not assume any scheduler behavior or transitions that are not explicitly present in the runtime graph.
 11. Focus on Linux kernel specifics and execution behavior.
+12. The runtime execution graph is the primary source of truth.
+13. Do not infer additional scheduler transitions not explicitly present in the runtime graph.
+14. If a transition is not present in the runtime graph, do not describe it as part of the execution flow.
+15. Do not substitute Linux kernel textbook knowledge for the provided runtime graph.
+16. Follow the runtime graph edges exactly in order.
 """
 
     return prompt
@@ -2274,38 +1978,38 @@ def append_callees(symbol, docs, metas):
 # scheduler execution path using the semantic graph.
 # --------------------------------------------------------
 # DEBUG/DEVELOPMENT FUNCTION - yashtbd
-def test_real_scheduler_runtime(
-    semantic_graph: SemanticGraph
-):
+# def test_real_scheduler_runtime(
+#     semantic_graph: SemanticGraph
+# ):
 
-    # --------------------------------------------------------
-    # Resolve Entry Point
-    # --------------------------------------------------------
+#     # --------------------------------------------------------
+#     # Resolve Entry Point
+#     # --------------------------------------------------------
 
-    schedule_id = semantic_graph.resolve_fq_name(
-        "kernel/sched/core.c",
-        "schedule"
-    )
+#     schedule_id = semantic_graph.resolve_fq_name(
+#         "kernel/sched/core.c",
+#         "schedule"
+#     )
 
-    if not schedule_id:
-        print("Could not resolve schedule()")
-        return
+#     if not schedule_id:
+#         print("Could not resolve schedule()")
+#         return
 
-    # --------------------------------------------------------
-    # Runtime Reconstruction
-    # --------------------------------------------------------
+#     # --------------------------------------------------------
+#     # Runtime Reconstruction
+#     # --------------------------------------------------------
 
-    runtime_engine = RuntimeExecutionEngine(
-        semantic_graph
-    )
+#     runtime_engine = RuntimeExecutionEngine(
+#         semantic_graph
+#     )
 
-    runtime_graph = (
-        runtime_engine.reconstruct_execution_path(
-            start_symbol_id=schedule_id,
-            cpu=0,
-            max_depth=16
-        )
-    )
+#     runtime_graph = (
+#         runtime_engine.reconstruct_execution_path(
+#             start_symbol_id=schedule_id,
+#             cpu=0,
+#             max_depth=MAX_DEPTH
+#         )
+#     )
 
     # --------------------------------------------------------
     # Print Runtime Graph
@@ -2316,13 +2020,65 @@ def test_real_scheduler_runtime(
         semantic_graph
     )
 
-def run_subsystem_workflow(semantic_graph, profile):
 
-    if profile == SCHEDULER_PROFILE:
-        return run_scheduler_semantic_workflow(
-            semantic_graph,
-            profile
+def parse_mode(
+    query: str
+):
+
+    query = query.strip()
+
+    if query.startswith("1-"):
+        return (
+            TraversalMode.RUNTIME_SPINE,
+            query[2:].strip()
         )
+
+    elif query.startswith("2-"):
+        return (
+            TraversalMode.IMPLEMENTATION_DESCENT,
+            query[2:].strip()
+        )
+
+    elif query.startswith("3-"):
+        return (
+            TraversalMode.DISPATCH_ANALYSIS,
+            query[2:].strip()
+        )
+
+    elif query.startswith("4-"):
+        return (
+            TraversalMode.FULL_BRANCH_EXPANSION,
+            query[2:].strip()
+        )
+
+    else:
+        return (
+            TraversalMode.RUNTIME_SPINE,
+            query
+        )
+
+def print_query_modes():
+
+    print(
+        """
+Create your query with one prefix:
+
+1 - Runtime Spine Analysis (Default)
+    Follow dominant subsystem execution flow
+
+2 - Implementation Descent
+    Dive into low-level implementation details
+
+3 - Dispatch Analysis
+    Explore runtime function-pointer dispatch
+
+4 - Full Branch Exploration
+    Enumerate all semantic execution paths
+
+Example:
+"1-Explain the Linux scheduler"
+"""
+    )
 
 def main():
     global ACTIVE_PROFILE, ACTIVE_SEMANTIC_BUNDLE
@@ -2339,17 +2095,27 @@ def main():
     print(f"✅ Connected to Ollama at {OLLAMA_HOST}")
 
     while True:
-        query = input("\nAsk about Linux kernel (or 'exit/stop/quit'): ").strip()
+        print_query_modes()
 
-        if not query:
+        query = input(
+            "(or 'exit/stop/quit'): "
+        ).strip()
+        #yashtbd
+        # From the query we find the traversal_mode and then imbark upon creating the
+        # runtime graph using the semantic graph and then build a detailed prompt
+        # for the LLM to answer the question based on the runtime graph,
+        # semantic graph, and relevant code snippets.
+        traversal_mode, cleaned_query = parse_mode(query)
+
+        if not cleaned_query:
             print("Please enter a question about the Linux Kernel.")
             return
 
-        if query.lower() in {"exit", "quit", "stop"}:
+        if cleaned_query.lower() in {"exit", "quit", "stop"}:
             return
 
         profile = determine_subsystem_profile(
-            query
+            cleaned_query
         )
 
         print(f"\n[Profile Detected]: {profile.subsystem_name}\n")
@@ -2404,20 +2170,25 @@ def main():
             print(semantic_graph.semantic_ir_stats())
         print("\nKernel Flow Explorer ready.")
 
-        runtime_graph = run_scheduler_semantic_workflow(semantic_graph, profile)
+        runtime_graph = run_semantic_workflow(
+            semantic_graph,
+            profile,
+            traversal_mode
+        )
+
         print("Exporting Mermaid runtime graph...")
         MermaidGraphExporter.export_runtime_graph(runtime_graph, semantic_graph, profile)
         print("Mermaid export completed. Check the 'exports' directory.")
 
         runtime_prompt = build_runtime_prompt(
-            runtime_graph, semantic_graph, query, profile, symbol_code_index)
+            runtime_graph, semantic_graph, cleaned_query, profile, symbol_code_index)
 
         answer = ask_llm(
-            prompt=runtime_prompt,
-            model="qwen2.5-coder:7b", #profile.preferred_model,
-            temperature=0.1,
-            num_predict=1200,
-            debug=False
+           prompt=runtime_prompt,
+           model="qwen2.5-coder:7b", #profile.preferred_model,
+           temperature=0.1,
+           num_predict=1200,
+           debug=False
         )
 
         print("\n*********************** Answer from the LLM ************************\n")

@@ -1,351 +1,429 @@
-# Kernel Flow Explorer
-### Semantic Execution Analysis for the Linux Kernel
+# KernelScope
+### Semantic Runtime Reconstruction for the Linux Kernel
 
-⚡ Runs fully locally. No API keys. No cost.
+⚡ Runs fully locally. No API keys. No cloud dependency. No usage cost.
 
-Understand the Linux kernel by **retrieving real code**, **reconstructing execution paths**, and **explaining them using a local LLM**.
+KernelScope reconstructs Linux kernel runtime behavior using:
+- semantic IR generation
+- dispatch-aware runtime reconstruction
+- subsystem semantic profiles
+- runtime graph traversal
+- local LLM interpretation
 
-Instead of relying on an LLM’s internal knowledge, this system:
+Instead of relying on an LLM’s internal knowledge alone, KernelScope builds semantic execution structure directly from Linux kernel source code.
 
-- retrieves real kernel code
-- reconstructs execution paths
-- explains behavior using a local LLM
 ---
 
-# The Idea
+# The Core Idea
 
-Ask:
+Traditional AI-assisted kernel exploration often looks like:
 
-```
-What happens when a timer interrupt wakes a sleeping task?
-```
-
-Get:
-
-```
-generic_handle_irq
-→ handle_irq_desc
-→ handle_irq_event
-→ handle_irq_event_percpu
-→ hrtimer_interrupt
-→ __hrtimer_run_queues
-→ run_timer_softirq
-→ try_to_wake_up
-→ ttwu_queue
-→ ttwu_do_activate
-→ activate_task
-→ enqueue_task
-→ check_preempt_curr
+```text
+Question → LLM → Explanation
 ```
 
-Which maps to:
+KernelScope instead does:
 
+```text
+Question
+↓
+Semantic IR reconstruction
+↓
+Runtime execution synthesis
+↓
+Dispatch reconstruction
+↓
+Runtime graph generation
+↓
+LLM interpretation constrained by runtime evidence
 ```
-IRQ → Timer → SoftIRQ → Scheduler Wakeup
+
+The runtime graph becomes the primary source of truth.
+
+---
+
+# Example Runtime Reconstruction
+
+Query:
+
+```text
+1-Explain the Linux scheduler
 ```
+
+Runtime reconstruction:
+
+```text
+schedule()
+→ __schedule_loop()
+→ __schedule()
+→ pick_next_task()
+→ __pick_next_task()
+→ pick_next_task_fair()
+→ context_switch()
+→ __switch_to()
+→ finish_task_switch()
+```
+
+KernelScope reconstructs scheduler-class dispatch behavior:
+
+```text
+sched_class.pick_next_task
+    → pick_next_task_fair()
+```
+
+rather than relying purely on static direct-call analysis.
 
 ---
 
 # Why This Project Exists
 
-Large language models can explain the Linux kernel.
-
-But they typically provide:
-
-- high-level summaries
-- simplified flows
-- answers not grounded in real code
-
-Which means:
-
-> The answer sounds correct, but cannot be verified.
-
----
-
-## A Different Approach
-
-Instead of:
-
-```
-LLM → answer
-```
-
-This project does:
-
-```
-Query → retrieve code → build execution flow → LLM explains
-```
-
----
-
-## Why Semantic Execution Analysis Matters
-
 The Linux kernel is:
-
-- massive (millions of LOC)
+- massive
 - highly modular
-- full of indirection (function pointers, ops tables)
-- cross-subsystem by design
+- full of indirect dispatch
+- deeply subsystem-oriented
+- execution-context sensitive
 
-This makes it difficult for LLMs alone to reason accurately.
+Large language models can explain Linux concepts, but often:
+- hallucinate execution flow
+- simplify dispatch behavior
+- omit runtime transitions
+- lose subsystem boundaries
 
-Execution-aware retrieval helps by:
-
-- grounding explanations in real kernel code
-- reconstructing subsystem execution paths
-- reducing hallucinated reasoning
-- enabling inspectable execution flow analysis
-
----
-
-## What You Gain
-
-- grounded explanations
-- visible execution paths
-- reproducible reasoning
-- faster understanding of unfamiliar subsystems
+KernelScope addresses this using:
+- semantic runtime reconstruction
+- execution-aware traversal
+- dispatch-aware semantic graphs
+- runtime-constrained prompting
 
 ---
 
-## Current Scope
+# Current Capabilities
 
-Kernel Flow Explorer focuses on:
+Implemented:
+- ctags-based symbol extraction
+- semantic graph generation
+- runtime execution reconstruction
+- scheduler dispatch reconstruction
+- traversal-mode runtime synthesis
+- Mermaid runtime graph export
+- persistent semantic IR bundle caching
+- subsystem semantic profiles
+- runtime-constrained LLM prompting
 
-- semantic execution reconstruction
-- subsystem-aware tracing
-- execution-path understanding
-- grounded kernel explanations
+Current scheduler dispatch reconstruction:
 
-The current implementation uses:
-- heuristic traversal
-- semantic reranking
-- dispatch reconstruction
+```text
+pick_next_task()
+→ __pick_next_task()
+→ pick_next_task_fair()
+```
 
-rather than full compiler-grade static analysis.
+Synthetic runtime continuations:
+
+```text
+pick_next_task_fair()
+→ context_switch()
+→ __switch_to()
+→ finish_task_switch()
+```
+
+---
+
+# Traversal Modes
+
+KernelScope supports multiple semantic traversal strategies.
+
+## 1 - Runtime Spine Analysis
+Follow dominant subsystem runtime continuation flow.
+
+Example:
+```text
+schedule()
+→ pick_next_task()
+→ context_switch()
+→ __switch_to()
+```
+
+---
+
+## 2 - Implementation Descent
+Dive into low-level implementation internals.
+
+Example:
+```text
+pick_next_task_fair()
+→ dequeue_task()
+→ rb_erase()
+→ ____rb_erase_color()
+```
+
+---
+
+## 3 - Dispatch Analysis
+Explore runtime function-pointer dispatch behavior.
+
+Example:
+```text
+sched_class.pick_next_task
+→ pick_next_task_fair()
+```
+
+---
+
+## 4 - Full Branch Exploration
+Enumerate semantic execution branches across subsystem flows.
+
+---
+
+# Architecture
+
+```text
+Linux Kernel Source
+↓
+ctags Symbol Extraction
+↓
+Semantic IR Generation
+↓
+Semantic Graph Construction
+↓
+Dispatch Reconstruction
+↓
+Runtime Graph Synthesis
+↓
+Traversal-Mode Reconstruction
+↓
+Mermaid Runtime Graph Export
+↓
+Runtime-Constrained LLM Interpretation
+```
+
+---
+
+# Semantic Runtime IR
+
+KernelScope compiles Linux kernel semantics into a persistent semantic IR bundle.
+
+The semantic IR currently contains:
+- symbols
+- semantic edges
+- dispatch relationships
+- synthetic continuations
+- subsystem semantic metadata
+- traversal semantics
+
+Current semantic edge ontology includes:
+- DIRECT_CALL
+- FUNCTION_POINTER_DISPATCH
+- SYNTHETIC_CONTINUATION
+- ASYNC_WAKEUP
+- INTERRUPT_ENTRY
+- INTERRUPT_EXIT
+- STATE_MUTATION
+- LOCK_ACQUIRE
+- LOCK_RELEASE
+
+---
+
+# Runtime Graph Example
+
+Generated Mermaid graphs visualize reconstructed runtime behavior.
+
+Example:
+
+```text
+schedule
+→ __schedule
+→ pick_next_task
+→ pick_next_task_fair
+→ context_switch
+→ __switch_to
+```
+
+Generated graphs are exported into:
+
+```text
+exports/
+callgraphs/
+```
 
 ---
 
 # How It Works
 
-```mermaid
-flowchart TD
+KernelScope currently combines:
+- semantic graph synthesis
+- heuristic runtime reconstruction
+- subsystem-aware traversal
+- dispatch reconstruction
+- semantic reranking
+- local LLM interpretation
 
-A[User Query]
-
-subgraph Retrieval
-B[Embedding Model]
-C[Vector Search - ChromaDB]
-D[Code Chunks]
-end
-
-subgraph Processing
-E[Symbol Injection]
-F[Subsystem Detection]
-G[Execution Path]
-end
-
-subgraph Generation
-H[Execution Context]
-I[Local LLM]
-J[Grounded Explanation]
-end
-
-A --> B --> C --> D --> E --> F --> G --> H --> I --> J
-```
+The system is evolving toward:
+- semantic runtime summaries
+- subsystem semantic explorers
+- dispatch-aware execution modeling
+- execution-phase reasoning
 
 ---
 
 # Quick Start
 
 ```bash
-# Run after completing installation
 python linux_code_assistant.py
 ```
 
-Then ask:
+You will see:
 
-```
-How does Linux handle an interrupt?
-```
+```text
+Create your query with one prefix:
 
-� Full setup guide: **[INSTALLATION.md](./INSTALLATION.md)**
-
----
-
-# Who This Is For
-
-### Linux Kernel Engineers
-- trace execution across subsystems
-- explore unfamiliar paths quickly
-
-### Engineers Learning the Kernel
-- understand flows without deep prior context
-- visualize interactions across components
-
-### Systems / AI Engineers
-- see how retrieval + reranking + domain heuristics combine
-- learn how semantic retrieval, reranking, and execution reconstruction combine for grounded systems reasoning
-
-### Anyone Wanting a Local AI Tutor
-- no API cost
-- works offline
-
----
-
-# Generated Graphs
-
-Each query produces a Mermaid graph:
-
-```
-callgraphs/
-interrupt/
-interrupt_timer_wakeup/
-interrupt_wakeup/
+1 - Runtime Spine Analysis (Default)
+2 - Implementation Descent
+3 - Dispatch Analysis
+4 - Full Branch Exploration
 ```
 
-Graphs include timestamps and execution paths.
+Example:
 
----
-
-# Architecture
-
-```
-Query
-↓
-Embedding search (ChromaDB)
-↓
-Kernel-aware reranking
-↓
-Symbol injection (ctags)
-↓
-Subsystem detection
-↓
-Execution path reconstruction
-↓
-Mermaid execution graph
-↓
-Grounded LLM explanation
+```text
+1-Explain the Linux scheduler
 ```
 
 ---
 
 # Example Queries
 
-- How does Linux handle an interrupt?
-- What happens when a timer interrupt wakes a sleeping task?
-- How does the scheduler perform a context switch?
-- How does a futex wake a task?
+```text
+1-Explain the Linux scheduler
+2-Explain how CFS removes a task
+3-Explain scheduler dispatch behavior
+1-Explain Linux interrupt wakeup flow
+```
 
 ---
 
-# Running on Windows (WSL)
+# Repository Structure
 
-Works well on:
+```text
+profiles/
+runtime_reconstruction/
+semantic_runtime/
+visualization/
+semantic_cache/
+```
 
-- Windows 10/11
-- WSL2 + Ubuntu
+Key architecture layers:
 
-Notes:
+- profiles/
+    subsystem semantic configuration
 
-- run everything inside `/home`
-- avoid `/mnt/c` (slow IO for indexing)
+- runtime_reconstruction/
+    runtime traversal strategies
+
+- semantic_runtime/
+    semantic ontology and runtime graph infrastructure
+
+- visualization/
+    Mermaid export and graph rendering
 
 ---
 
-Current capabilities include:
-- scheduler-class dispatch reconstruction
-- semantic execution-path tracing
-- Mermaid execution graph generation
-- persistent semantic graph caching
+# Who This Is For
+
+### Linux Kernel Engineers
+- reconstruct subsystem execution flow
+- explore scheduler/runtime behavior
+- inspect indirect dispatch
+
+### Engineers Learning the Kernel
+- understand runtime behavior visually
+- follow execution flow incrementally
+- bridge subsystem interactions
+
+### Systems / AI Engineers
+- study semantic IR reconstruction
+- study execution-aware retrieval
+- study runtime-constrained prompting
+
+### Local-First AI Enthusiasts
+- fully offline
+- no API dependency
+- inspectable reasoning pipeline
 
 ---
 
 # Current Limitations
-- partial function-pointer reconstruction
-- arch-specific execution simplifications
-- heuristic execution tracing in some subsystems
-- no runtime validation yet
+
+Current implementation still includes:
+- heuristic traversal selection
+- partial dispatch reconstruction
+- incomplete async modeling
+- limited subsystem coverage
+- no runtime trace validation yet
+
+Implementation descent can still expand deeply into helper internals.
 
 ---
 
-## Current Semantic Coverage
+# Planned Work
 
-Implemented:
-- scheduler execution tracing
-- scheduler-class dispatch reconstruction
-- Mermaid execution graph generation
-- persistent semantic graph caching
+## Runtime Reconstruction
+- runtime spine prioritization
+- execution continuation scoring
+- wakeup-flow reconstruction
+- IRQ execution reconstruction
+- MM subsystem traversal
+- VFS subsystem traversal
 
-Planned:
-- wakeup flows
-- IRQ execution tracing
-- MM traversal
-- driver subsystem reconstruction
-- SMP interactions
-- cgroup-aware tracing
+## Semantic Runtime Modeling
+- semantic runtime summaries
+- state transition reasoning
+- execution-phase modeling
+- lock/state annotations
+- async execution semantics
 
-The current implementation can reconstruct scheduler-class execution dispatch paths, including indirect scheduling transitions such as:
+## Dispatch Reconstruction
+- provider-pattern generalization
+- expanded function-pointer reconstruction
+- subsystem-specific dispatch semantics
 
-pick_next_task()
-→ __pick_next_task()
-→ pick_next_task_fair()
+## Visualization
+- dispatch-aware Mermaid graphs
+- subsystem boundary visualization
+- execution-phase overlays
 
----
-
-# Future Work
-
-### Core Kernel Understanding
-- function pointer tracing
-- real callgraph integration (clang / cflow)
-- runtime tracing (ftrace, eBPF)
-
-### Semantic Retrieval & Execution Analysis Improvements
-- graph-aware semantic retrieval
-- multi-source semantic retrieval (code + docs)
-- execution-aware retrieval refinement
-
-### Intelligence Layer
-- subsystem-aware reasoning (USB, networking, DRM, block layer)
-
-### Developer Experience
-- session history & exploration
-- better visualization (layered diagrams, subsystem boundaries)
-
-### Platform & Model
-- native Windows support
-- auto-select best local LLM (optional)
-- plug-and-play model layer
-
+## Intelligence Layer
+- runtime-conditioned prompting
+- semantic runtime summarization
+- reduced raw-code dependency
+- execution-aware explanation shaping
 
 ---
 
-# Long Term Direction
+# Long-Term Direction
 
-This is not just about the Linux kernel.
+KernelScope is evolving toward:
 
-The same approach can be applied to:
+```text
+Semantic Runtime IR Exploration
+```
 
-- large codebases
-- textbooks
-- engineering systems
+rather than:
+```text
+generic code retrieval + chatbot interaction
+```
 
-The goal:
+The long-term goal is to turn large complex systems into:
+- explorable semantic runtime models
+- inspectable execution graphs
+- explainable subsystem behavior
 
-> Turn complex systems into something you can ask questions to and understand deeply.
-
----
-
-## Roadmap
-
-Planned improvements and future exploration areas:
-
-- Persistent semantic graph caching
-- Domain-aware execution entrypoint selection
-- Expanded function-pointer dispatch reconstruction
-- Wakeup, IRQ, and memory-management execution tracing
-- Semantic Mermaid graph visualization
-- Interactive execution-path exploration
-- Path-conditioned retrieval for improved LLM grounding
+The same architecture can eventually extend beyond the Linux kernel into:
+- distributed systems
+- embedded firmware
+- operating systems
+- large-scale software platforms
 
 ---
 
@@ -353,6 +431,8 @@ Planned improvements and future exploration areas:
 
 This project is licensed under the MIT License.
 
-Note: This project indexes and analyzes the Linux kernel source code,
-which is licensed under GPLv2. This repository does not redistribute
-the kernel source itself.
+Note:
+KernelScope indexes and analyzes Linux kernel source code,
+which is licensed under GPLv2.
+
+This repository does not redistribute the Linux kernel source itself.

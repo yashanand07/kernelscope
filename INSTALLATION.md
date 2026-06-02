@@ -159,10 +159,16 @@ python linux_code_assistant.py
 
 ---
 
-## � Example Query
+## � Example Query - Depending on the traversal mode chosen by the User
 
 ```
-How does Linux handle an interrupt?
+1 - Runtime Spine Analysis (Default) - Follow dominant subsystem execution flow
+2 - Implementation Descent - Dive into low-level implementation details
+3 - Dispatch Analysis - Explore runtime function-pointer dispatch
+4 - Full Branch Exploration - Enumerate all semantic execution paths
+e.g.
+1-Explain the Linux scheduler
+2-Explain the Linux scheduler
 ```
 
 ---

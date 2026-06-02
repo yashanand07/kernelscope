@@ -37,9 +37,9 @@ def extract_struct_initializer(
                 and re.search(r"\s=\s", normalized)
                 and "{" in normalized
             )
-           
+
             macro_name = None
-           
+
             if symbol.endswith("_sched_class"):
                 macro_name = symbol.replace(
                     "_sched_class",
