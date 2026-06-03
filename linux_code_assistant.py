@@ -6,7 +6,7 @@ Semantic execution analysis for the Linux kernel.
 Reconstructs kernel execution paths using:
 - semantic retrieval
 - subsystem-aware reranking
-- scheduler dispatch reconstruction
+- subsystem dispatch reconstruction
 - execution-path analysis
 - local LLM reasoning
 
@@ -48,6 +48,9 @@ from semantic_runtime.runtime_graph import (
     RuntimeExecutionGraph,
     ExecutionNode,
     ExecutionEdge
+)
+from profiles.profiles_registry import (
+    determine_subsystem_profile
 )
 from enum import Enum
 from hashlib import sha1
@@ -883,7 +886,7 @@ def build_dispatch_index(
 
         for field, impl in matches:
 
-            if field in VALID_OPS: #yashtbd To be changed to VALID_DISPATCH_OPERATIONS
+            if field in profile.valid_dispatch_operations:
                 ops_index.setdefault(field, set()).add(impl)
 
     return ops_index
@@ -1078,7 +1081,7 @@ def compile_semantic_ir(profile):
 
 
     # --------------------------------------------------------
-    # Inject Synthetic Scheduler Continuations
+    # Inject synthetic edges for continuity based on profile-defined bridges
     # --------------------------------------------------------
 
     for src_name, dst_name in profile.synthetic_bridges.items():
@@ -1112,7 +1115,7 @@ def compile_semantic_ir(profile):
 
             confidence=confidence,
 
-            resolution_source="synthetic_scheduler_bridge",
+            resolution_source="reconstructed_execution_continuity",
 
             is_deterministic=True
         )
@@ -1232,27 +1235,6 @@ def load_full_function(symbol):
 # SECTION 3 - Semantic Graph Compilation - 2 Pass Approach - Ends
 # =================================================================
 
-# =================================================================
-# SECTION 4 - Subsystem Profiles of the Linux kernel - Starts
-# =================================================================
-
-# --------------------------------------------------------
-# SUBSYSTEM PROFILES - scheduler, irq, mm, driver etc
-# --------------------------------------------------------
-
-
-
-
-
-def determine_subsystem_profile(query: str):
-    if "sched" in query.lower():
-        return SCHEDULER_PROFILE
-
-
-
-# =================================================================
-# SECTION 4 - Subsystem Profiles of the Linux kernel - Ends
-# =================================================================
 
 def run_semantic_workflow(
     semantic_graph,
@@ -1359,15 +1341,7 @@ def run_semantic_workflow(
 # 3. KERNEL HEURISTICS & TEMPLATES
 # =================================================================
 
-VALID_OPS = {
-    "pick_next_task",
-    "pick_task",
-    "enqueue_task",
-    "dequeue_task",
-    "check_preempt_curr",
-    "yield_task",
-    "wakeup_preempt",
-}
+
 
 # -----------------------------
 # Load Ctags index
@@ -1394,6 +1368,11 @@ with open("tags") as f:
     print("CTAGS symbols loaded:", len(ctags_index))
     #print("HAS __switch_to:", "__switch_to" in ctags_index)
 
+#yashtbd - we can expand this list based on observed false positives during
+# traversal and analysis. For example, common macros, inline functions,
+# and diagnostic functions that appear frequently in the kernel but do
+# not represent meaningful call relationships can be added to this
+# set to improve the precision of our call graph extraction.
 IGNORE_CALLS = {
     "if","for","while","switch","return","sizeof",
 
@@ -1503,191 +1482,6 @@ def extract_symbols(query):
 
     return matches
 
-
-# -----------------------------
-# Retrieval
-# -----------------------------
-
-def retrieve_code(query):
-
-    vec = embed_model.encode(query, normalize_embeddings=True)
-
-    results = collection.query(
-        query_embeddings=[vec],
-        n_results=40
-    )
-
-    docs = results["documents"][0]
-    metas = results["metadatas"][0]
-
-    # -------------------------
-    # Symbol injection
-    # -------------------------
-
-    symbol_hits = extract_symbols(query)
-    existing = {m["symbol"] for m in metas}
-
-    for hit in symbol_hits[:3]:
-
-        if hit["symbol"] not in existing:
-
-            docs.insert(0, hit["code"])
-            metas.insert(0, {
-                "symbol": hit["symbol"],
-                "file": hit["file"]
-            })
-
-    # -------------------------
-    # Query tokens
-    # -------------------------
-
-    tokens = token_pattern.findall(query.lower())
-    query_tokens = {
-        t for t in tokens if t not in STOPWORDS
-    }
-
-    # -------------------------
-    # Reranking
-    # -------------------------
-
-    scored = []
-
-    for d, m in zip(docs, metas):
-
-        if len(m["symbol"]) <= 2:
-            continue
-
-        sym = m["symbol"].lower()
-        file = m["file"].lower()
-
-        # Ignore macro-style symbols
-        if sym.isupper():
-            continue
-
-        # Ignore diagnostic IRQ functions
-        if sym in {"arch_show_interrupts", "spurious_interrupt", "handle_badint"}:
-            continue
-
-        # remove testing noise completely
-        if "selftest" in file or "testing" in file:
-            continue
-
-        if not ("kernel/" in file or "arch/" in file):
-            continue
-
-        if "relocs.c" in file:
-            continue
-
-        if "traps.c" in file:
-            continue
-
-        score = 0
-
-        if sym in query_tokens:
-            score += 15
-
-        # Prefer generic IRQ entry points
-        if sym == "do_irq":
-            score += 120
-
-        elif sym in {"handle_irq_event", "handle_irq_event_percpu"}:
-            score += 100
-
-        # Structural importance boost
-        # Commented out because it was causing irrelevant popular functions 
-        # to dominate results, but can be re-enabled if needed for recall
-        # Symbols like TEST, SYSCALL_DEFINE, module_init, etc. appear thousands 
-        # of times in the kernel tree. Their symbol_freq becomes very large 
-        # and overwhelms all the other signals.
-        score += sum(1 for t in query_tokens if t in sym) * 5
-        score += sum(1 for t in query_tokens if t in file) * 2
-
-        # scheduler bias
-        if "kernel/sched" in file:
-            score += 40
-
-        if "kernel/irq" in file:
-            score += 40
-
-        if file.startswith("tools/"):
-            score -= 30
-
-        #if "selftest" in file or "testing" in file:
-        #    score -= 6
-
-        if file.startswith("kernel/"):
-            score += 10
-
-        if file.startswith("drivers/gpu"):
-            score -= 20
-
-        if file.startswith("arch/") and "kernel" not in file:
-            score -= 10
-
-        # Penalize architecture-specific interrupt helpers
-        if file.startswith("arch/") and "irq.c" in file:
-            score -= 30
-        scored.append((score, d, m))
-            
-    scored.sort(key=lambda x: x[0], reverse=True)
-
-    # print("\nTop Vector retrieval candidates:\n")
-    # for s in scored[:5]:
-    #     print(s[2]["symbol"], s[2]["file"], "score:", s[0])
-
-    docs = [s[1] for s in scored][:3]
-    metas = [s[2] for s in scored][:3]
-
-    # -------------------------
-    # Interrupt entry injection
-    # -------------------------
-    domains = detect_domains(query)
-
-    if "interrupt" in domains and "vector" not in query.lower():
-
-        anchors = ["generic_handle_irq", "handle_irq_event", "handle_irq_event_percpu"]
-
-        injected_docs = []
-        injected_meta = []
-
-        for anchor in anchors:
-
-            if anchor.lower() not in symbol_index:
-                continue
-
-            best = None
-
-            entry = symbol_index.get(anchor.lower())
-
-            if entry:
-                injected_docs.append(entry["code"])
-                injected_meta.append({
-                    "symbol": entry["symbol"],
-                    "file": entry["file"]
-                })
-
-        existing = {m["symbol"] for m in metas}
-
-        for d, m in zip(injected_docs, injected_meta):
-            if m["symbol"] not in existing:
-                docs.insert(0, d)
-                metas.insert(0, m)
-
-        docs = docs[:3]
-        metas = metas[:3]
-
-    if not metas:
-        print("No functions retrieved")
-        return [], []
-
-    #   print(f"\nTop function: {metas[0]['symbol']} ({metas[0]['file']})")
-    print("\nRetrieved functions:\n")
-
-    for m in metas:
-        subsystem = "/".join(m["file"].split("/")[:2])
-        print(f"{m['symbol']}   ({m['file']})   [{subsystem}]")
-
-    return docs, metas
 
 #---------------------------------------
 # Prompt builder - Constructs a detailed prompt for
@@ -1830,18 +1624,18 @@ RELEVANT KERNEL CODE:
 Instructions:
 
 1. Explain the actual runtime execution path.
-2. Explain scheduler/runtime state transitions.
+2. Explain runtime state transitions.
 3. Explain indirect dispatch behavior.
 4. Distinguish direct calls from polymorphic dispatch.
 5. Explain subsystem interactions.
 6. Explain why the runtime path evolves this way.
-7. Use the semantic dispatch flow when describing scheduler class behavior.
+7. Use the semantic dispatch flow when describing subsystem class behavior.
 8. Avoid generic Operating System explanations
 9. Use only the provided runtime graph and kernel code.
-10. Do not assume any scheduler behavior or transitions that are not explicitly present in the runtime graph.
+10. Do not assume any subsystem behavior or transitions that are not explicitly present in the runtime graph.
 11. Focus on Linux kernel specifics and execution behavior.
 12. The runtime execution graph is the primary source of truth.
-13. Do not infer additional scheduler transitions not explicitly present in the runtime graph.
+13. Do not infer additional subsystem transitions not explicitly present in the runtime graph.
 14. If a transition is not present in the runtime graph, do not describe it as part of the execution flow.
 15. Do not substitute Linux kernel textbook knowledge for the provided runtime graph.
 16. Follow the runtime graph edges exactly in order.
@@ -1970,56 +1764,6 @@ def append_callees(symbol, docs, metas):
                 "symbol": entry["symbol"],
                 "file": entry["file"]
             })
-#############################
-
-
-# --------------------------------------------------------
-# Test function to validate runtime reconstruction of the
-# scheduler execution path using the semantic graph.
-# --------------------------------------------------------
-# DEBUG/DEVELOPMENT FUNCTION - yashtbd
-# def test_real_scheduler_runtime(
-#     semantic_graph: SemanticGraph
-# ):
-
-#     # --------------------------------------------------------
-#     # Resolve Entry Point
-#     # --------------------------------------------------------
-
-#     schedule_id = semantic_graph.resolve_fq_name(
-#         "kernel/sched/core.c",
-#         "schedule"
-#     )
-
-#     if not schedule_id:
-#         print("Could not resolve schedule()")
-#         return
-
-#     # --------------------------------------------------------
-#     # Runtime Reconstruction
-#     # --------------------------------------------------------
-
-#     runtime_engine = RuntimeExecutionEngine(
-#         semantic_graph
-#     )
-
-#     runtime_graph = (
-#         runtime_engine.reconstruct_execution_path(
-#             start_symbol_id=schedule_id,
-#             cpu=0,
-#             max_depth=MAX_DEPTH
-#         )
-#     )
-
-    # --------------------------------------------------------
-    # Print Runtime Graph
-    # --------------------------------------------------------
-
-    RuntimeGraphPrinter.print_graph(
-        runtime_graph,
-        semantic_graph
-    )
-
 
 def parse_mode(
     query: str

@@ -1,2 +1,254 @@
-def reconstruct_dispatch_path():
-    return
+#--------------------------------------------------------
+# Reconstructs a plausible dispatch path starting from a
+# given symbol, using the semantic graph and heuristics.
+#--------------------------------------------------------
+from semantic_runtime.runtime_graph import (
+    RuntimeExecutionGraph,
+    ExecutionNode,
+    ExecutionEdge
+)
+from semantic_runtime.ontology import (
+    SemanticEdgeType
+)
+from profiles.subsystem_profile import (
+    SubsystemSemanticProfile
+)
+def reconstruct_dispatch_path(
+    runtime_engine,
+    profile,
+    start_symbol_id: str,
+    cpu: int,
+    max_depth: int = 16
+) -> RuntimeExecutionGraph:
+
+    runtime_graph = RuntimeExecutionGraph()
+
+    # Prevent cycles and redundant traversal.
+    visited_symbols = set()
+
+    current_symbol_id = start_symbol_id
+    previous_node_id = None
+
+    # Tracks the edge that produced the current node.
+    incoming_edge = None
+
+    for depth in range(max_depth):
+
+        # Cycle Prevention
+        if current_symbol_id in visited_symbols:
+            break
+
+        visited_symbols.add(current_symbol_id)
+
+        # Create Current Execution Node
+        node_id = runtime_engine.generate_execution_node_id(
+            symbol_id=current_symbol_id,
+            cpu=cpu,
+            depth=depth,
+            context="process_context"
+        )
+
+        node = ExecutionNode(
+            node_id=node_id,
+
+            symbol_id=current_symbol_id,
+
+            cpu=cpu,
+
+            context="process_context",
+
+            timestamp=None,
+
+            depth=depth,
+
+            # Semantic annotations attached to this
+            # execution point (locks, state changes, etc.)
+            semantic_annotations=[]
+        )
+
+        runtime_graph.nodes[node_id] = node
+
+        # Link Previous Node -> Current Node
+        if (
+            previous_node_id is not None
+            and incoming_edge is not None
+        ):
+
+            runtime_graph.edges.append(
+                ExecutionEdge(
+                    src_node_id=previous_node_id,
+
+                    dst_node_id=node_id,
+
+                    semantic_edge_id=incoming_edge.edge_id,
+
+                    execution_context="runtime_flow"
+                )
+            )
+
+        # Pull Semantic Transitions
+        outgoing_edges = (
+            runtime_engine.semantic_graph.get_outgoing_edges(
+                current_symbol_id
+            )
+        )
+
+        if not outgoing_edges:
+            break
+
+        # Separate Runtime Traversal Edges
+        # From Semantic Annotations
+        traversable_edges = []
+
+        for edge in outgoing_edges:
+
+            #
+            # Runtime traversal edges participate
+            # in execution flow reconstruction.
+            #
+            if edge.edge_type.is_runtime_traversable:
+
+                traversable_edges.append(edge)
+
+            #
+            # Non-traversable edges become semantic
+            # annotations attached to the node.
+            #
+            else:
+
+                node.semantic_annotations.append(edge)
+
+        # No Forward Runtime Flow
+        if not traversable_edges:
+            break
+        print("\n[DEBUG] CURRENT SYMBOL:", current_symbol_id)
+
+        for edge in traversable_edges:
+
+            dst_symbol = runtime_engine.semantic_graph.lookup_symbol(
+                edge.dst_symbol_id
+            )
+
+            dst_name = (
+                dst_symbol.name
+                if dst_symbol
+                else edge.dst_symbol_id
+            )
+
+            print(
+                f"    "
+                f"{edge.edge_type.name}"
+                f" -> "
+                f"{dst_name}"
+            )
+        # ------------------------------------------------
+        # Runtime Edge Selection
+        #
+        # NOTE:
+        # Currently selects a dominant execution path.
+        #
+        # Future work:
+        # - multi-path expansion
+        # - async branching
+        # - dispatch fanout traversal
+        # ------------------------------------------------
+
+        # 1. FILTER VISITED NODES EARLY
+        # Prevent the engine from selecting edges that loop backwards
+        valid_edges = [
+            edge for edge in traversable_edges
+            if edge.dst_symbol_id not in visited_symbols
+        ]
+
+        if not valid_edges:
+            break
+
+        next_edges = []
+
+        # Prefer deterministic FUNCTION_POINTER_DISPATCH edges first.
+        fpdispatch_edges = [
+            edge
+            for edge in valid_edges
+            if edge.edge_type in {
+                SemanticEdgeType.FUNCTION_POINTER_DISPATCH,
+                #SemanticEdgeType.SYNTHETIC_CONTINUATION # <-- CRITICAL ADDITION
+            }
+        ]
+        # Print the results we just filtered
+        for edge in fpdispatch_edges:
+            print(f"[DEBUG] Found FUNCTION_POINTER_DISPATCH: {edge.edge_type.name} -> {edge.dst_symbol_id}")
+
+        if fpdispatch_edges:
+            # Sort by confidence to ensure we pick the strongest path
+            fpdispatch_edges.sort(key=lambda e: getattr(e, 'confidence', 0), reverse=True)
+            next_edges = [fpdispatch_edges[0]]
+        else:
+            # Fall back to synthetic continuation reconstruction.
+            synthetic_edges = [
+                edge
+                for edge in valid_edges
+                if (
+                    edge.edge_type ==
+                    SemanticEdgeType.SYNTHETIC_CONTINUATION
+                )
+            ]
+
+            if synthetic_edges:
+
+                #
+                # NOTE:
+                # Future runtime graph expansion will
+                # traverse ALL synthetic continuation candidates.
+                #
+                #next_edges = [dispatch_edges[0]]
+                synthetic_edges.sort(key=lambda e: getattr(e, 'confidence', 0), reverse=True)
+                next_edges = [synthetic_edges[0]]
+            else:
+
+                direct_edges = [
+                    edge
+                    for edge in valid_edges
+                    if (
+                        edge.edge_type ==
+                        SemanticEdgeType.DIRECT_CALL
+                    )
+                    and
+                    (
+                        runtime_engine.semantic_graph.lookup_symbol(
+                            edge.dst_symbol_id
+                        ).name
+                        not in
+                        profile.low_signal_calls
+                    )
+                ]
+
+                if direct_edges:
+
+                    direct_edges.sort(
+                        key=lambda e: getattr(
+                            e,
+                            "confidence",
+                            0
+                        ),
+                        reverse=True
+                    )
+
+                    next_edges = [direct_edges[0]]
+
+        # Final fallback.
+        if not next_edges:
+
+            next_edges = [traversable_edges[0]]
+
+        # Advance Traversal
+        selected_edge = next_edges[0]
+
+        previous_node_id = node_id
+
+        incoming_edge = selected_edge
+
+        current_symbol_id = (
+            selected_edge.dst_symbol_id
+        )
+
+    return runtime_graph

@@ -79,6 +79,15 @@ SCHEDULER_PROFILE = (
             "kernel/sched/idle.c",
             "kernel/sched/deadline.c"
         ],
-        provider_patterns = SCHEDULER_PROVIDER_PATTERNS
+        provider_patterns = SCHEDULER_PROVIDER_PATTERNS,
+        valid_dispatch_operations = {
+            "pick_next_task",
+            "pick_task",
+            "enqueue_task",
+            "dequeue_task",
+            "check_preempt_curr",
+            "yield_task",
+            "wakeup_preempt",
+        }
     )
 )

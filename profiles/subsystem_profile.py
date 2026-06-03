@@ -30,7 +30,7 @@ class SubsystemSemanticProfile:
         ProviderPattern
     ] = field(default_factory=list)
 
-
+    valid_dispatch_operations: Set[str] = field(default_factory=set)
 
     def requires_dispatch_analysis(
         self,
