@@ -9,6 +9,7 @@ SCHEDULER_PROVIDER_PATTERNS = [
     ProviderPattern(
         suffix="_sched_class",
         provider_kind="scheduler_class",
+        struct_type="sched_class",
         macro_name="DEFINE_SCHED_CLASS"
     )
 ]

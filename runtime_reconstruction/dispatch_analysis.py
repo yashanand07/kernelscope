@@ -171,7 +171,6 @@ def reconstruct_dispatch_path(
             for edge in valid_edges
             if edge.edge_type in {
                 SemanticEdgeType.FUNCTION_POINTER_DISPATCH,
-                #SemanticEdgeType.SYNTHETIC_CONTINUATION # <-- CRITICAL ADDITION
             }
         ]
         # Print the results we just filtered
@@ -224,6 +223,20 @@ def reconstruct_dispatch_path(
 
                 if direct_edges:
 
+                    for edge in direct_edges:
+
+                        dst_symbol = (
+                            runtime_engine.semantic_graph.lookup_symbol(
+                                edge.dst_symbol_id
+                            )
+                        )
+
+                        print(
+                            f"[DIRECT] "
+                            f"{dst_symbol.name} "
+                            f"confidence="
+                            f"{getattr(edge, 'confidence', 0)}"
+                        )
                     direct_edges.sort(
                         key=lambda e: getattr(
                             e,

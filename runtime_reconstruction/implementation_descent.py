@@ -171,7 +171,6 @@ def reconstruct_implementation_path(
             for edge in valid_edges
             if edge.edge_type in {
                 SemanticEdgeType.DIRECT_CALL,
-                #SemanticEdgeType.SYNTHETIC_CONTINUATION # <-- CRITICAL ADDITION
             }
         ]
         # Print the results we just filtered
