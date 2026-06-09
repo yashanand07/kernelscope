@@ -9,7 +9,7 @@ class RuntimeGraphPrinter:
         semantic_graph
     ):
 
-        print("\n========== Runtime Execution Graph ==========")
+        print("\n@@========== Runtime Execution Graph ==========@@\n")
 
         # Sort nodes by depth to print the trace chronologically
         nodes_by_depth = sorted(

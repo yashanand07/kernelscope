@@ -72,6 +72,10 @@ from semantic_runtime.semantic_graph import (
     SymbolIdentity,
     SemanticEdge
 )
+from semantic_runtime.symbol_type import (
+    SymbolKind
+)
+
 
 import requests
 import json
@@ -85,7 +89,7 @@ import time
 import platform
 import pickle
 
-MAX_DEPTH = 8
+MAX_DEPTH = 16
 MAX_RUNTIME_NODES = 8
 DEBUG = False
 LINUX_ROOT = os.environ.get(
@@ -428,8 +432,8 @@ def register_all_symbols(semantic_graph, symbol_index):
                 file_path=data["file"],
 
                 line=0,
-
-                kind="function"
+                #UNKNOWN for now. Later passes will enrich this with FN,I/F,IMPL
+                kind=SymbolKind.UNKNOWN
             )
 
             entry = symbol_index.setdefault(
@@ -442,7 +446,19 @@ def register_all_symbols(semantic_graph, symbol_index):
             )
 
             entry["code"] += "\n" + data["code"]
-
+# ------------------------------------------------------------------
+# LEGACY DISPATCH RECONSTRUCTION
+#
+# Older ops-index based dispatch recovery.
+#
+# Retained temporarily as a reference while validating the
+# provider-based dispatch architecture across multiple subsystems.
+#
+# Candidates for removal after:
+#   - Scheduler validation
+#   - VFS validation
+#   - One additional subsystem validation
+# ------------------------------------------------------------------
 def build_dispatch_index(
     symbol_index,
     profile

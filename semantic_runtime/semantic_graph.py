@@ -2,12 +2,15 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
 from .ontology import SemanticEdgeType
 from utils.subsystem_derivation import derive_subsystem
+from .symbol_type import (
+    SymbolKind
+)
 from hashlib import sha1
 # --------------------------------------------------------
 # Symbol Identity Layer
 # --------------------------------------------------------
 
-DEBUG = False
+DEBUG = True
 @dataclass(slots=True)
 class SymbolIdentity:
     symbol_id: str
@@ -17,7 +20,7 @@ class SymbolIdentity:
 
     line: int
 
-    kind: str
+    kind: SymbolKind
 
     signature: Optional[str]
 
@@ -89,11 +92,10 @@ class SemanticGraph:
         file_path: str,
         symbol: str,
         signature: Optional[str],
-        kind: str
     ) -> str:
 
         identity_seed = (
-            f"{file_path}:{symbol}:{signature}:{kind}"
+            f"{file_path}:{symbol}:{signature}"
         )
 
         return sha1(identity_seed.encode()).hexdigest()
@@ -136,15 +138,14 @@ class SemanticGraph:
         symbol_id = self.generate_symbol_id(
             file_path=f"<{provider_kind}_interface>",
             symbol=interface_name,
-            signature=None,
-            kind="synthetic_interface"
+            signature=None
         )
         symbol = SymbolIdentity(
             symbol_id=symbol_id,
             name=interface_name,
             file_path=f"<{provider_kind}_interface>",
             line=0,
-            kind="synthetic_interface",
+            kind=SymbolKind.INTERFACE,
             signature=None,
             subsystem=provider_kind
         )
@@ -163,7 +164,7 @@ class SemanticGraph:
         name: str,
         file_path: str,
         line: int,
-        kind: str,
+        kind: SymbolKind,
         signature: Optional[str] = None
     ) -> str:
 
@@ -172,8 +173,7 @@ class SemanticGraph:
         symbol_id = self.generate_symbol_id(
             file_path=file_path,
             symbol=name,
-            signature=signature,
-            kind=kind
+            signature=signature
         )
 
         if symbol_id in self.symbol_table:
@@ -450,3 +450,20 @@ class SemanticGraph:
         return self.name_to_symbol_id.get(
             symbol_name
         )
+
+    def dump_symbol_edges(self, symbol_id: str):
+
+        outgoing = self.get_outgoing_edges(symbol_id)
+
+        print(
+            f"Outgoing edges for {symbol_id} ({len(outgoing)}):"
+        )
+
+        for edge in outgoing:
+            dst_symbol = self.lookup_symbol(edge.dst_symbol_id)
+            dst_name = dst_symbol.name if dst_symbol else edge.dst_symbol_id
+            print(
+                f"  - {edge.edge_type.name} --> "
+                f"{dst_name} (confidence={edge.confidence})"
+            )
+        print("\n\n")

@@ -59,6 +59,7 @@ SCHEDULER_PROFILE = (
         # dispatches, or complex control flow. They help bridge gaps in the semantic
         # graph and enable more complete execution path reconstruction.
         synthetic_bridges = {
+            "__pick_next_task": "scheduler_class:pick_next_task",
             "pick_next_task_fair": "context_switch",
             "pick_next_task_rt": "context_switch",
             "pick_next_task_idle": "context_switch",
@@ -89,6 +90,12 @@ SCHEDULER_PROFILE = (
             "check_preempt_curr",
             "yield_task",
             "wakeup_preempt",
+        },
+
+        runtime_depth_limit=16,
+        terminal_symbols={
+            "__switch_to",
+            "finish_task_switch",
         }
     )
 )

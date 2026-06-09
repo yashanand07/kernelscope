@@ -1,0 +1,12 @@
+from enum import Enum
+
+class SymbolKind(Enum):
+    UNKNOWN = "UNKNOWN"
+
+    FUNCTION = "FUNCTION"
+    INTERFACE = "INTERFACE"
+    IMPLEMENTATION = "IMPLEMENTATION"
+
+    STRUCT = "STRUCT"
+    FIELD = "FIELD"
+    VARIABLE = "VARIABLE"

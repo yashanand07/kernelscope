@@ -13,6 +13,7 @@ from semantic_runtime.ontology import (
 from profiles.subsystem_profile import (
     SubsystemSemanticProfile
 )
+DEBUG = False
 def reconstruct_implementation_path(
     runtime_engine,
     profile,
@@ -20,6 +21,8 @@ def reconstruct_implementation_path(
     cpu: int,
     max_depth: int = 16
 ) -> RuntimeExecutionGraph:
+
+    print(f"Reconstructing Implementation Path for Symbol: {start_symbol_id}")
 
     runtime_graph = RuntimeExecutionGraph()
 
@@ -31,8 +34,14 @@ def reconstruct_implementation_path(
 
     # Tracks the edge that produced the current node.
     incoming_edge = None
+    max_depth_profile = (
+        profile.runtime_depth_limit
+        if profile.runtime_depth_limit is not None
+        else max_depth
+    )
+    profile_terminal_symbol = profile.terminal_symbols
 
-    for depth in range(max_depth):
+    for depth in range(max_depth_profile):
 
         # Cycle Prevention
         if current_symbol_id in visited_symbols:
@@ -86,6 +95,22 @@ def reconstruct_implementation_path(
                 )
             )
 
+        symbol = runtime_engine.semantic_graph.lookup_symbol(
+            current_symbol_id
+        )
+
+        symbol_name = (
+            symbol.name
+            if symbol
+            else current_symbol_id
+        )
+
+        if symbol_name in profile.terminal_symbols:
+            print(
+                f"[TRACE COMPLETE] {symbol_name}"
+            )
+            break
+
         # Pull Semantic Transitions
         outgoing_edges = (
             runtime_engine.semantic_graph.get_outgoing_edges(
@@ -121,7 +146,20 @@ def reconstruct_implementation_path(
         # No Forward Runtime Flow
         if not traversable_edges:
             break
-        print("\n[DEBUG] CURRENT SYMBOL:", current_symbol_id)
+        symbol = runtime_engine.semantic_graph.lookup_symbol(
+            current_symbol_id
+        )
+
+        symbol_name = (
+            symbol.name
+            if symbol
+            else current_symbol_id
+        )
+        print(
+            f"\n[DEBUG] CURRENT SYMBOL: "
+            f"{symbol_name}"
+            f" ({current_symbol_id[:8]})"
+        )
 
         for edge in traversable_edges:
 
@@ -165,22 +203,36 @@ def reconstruct_implementation_path(
 
         next_edges = []
 
-        # Prefer deterministic DIRECT_CALL edges first.
-        direct_edges = [
+        # Prefer deterministic SYNTHETIC_CONTINUATION edges first.
+        synth_edges = [
             edge
             for edge in valid_edges
             if edge.edge_type in {
-                SemanticEdgeType.DIRECT_CALL,
+                SemanticEdgeType.SYNTHETIC_CONTINUATION,
             }
         ]
         # Print the results we just filtered
-        # for edge in direct_edges:
-        #     print(f"[DEBUG] Found DIRECT_CALL: {edge.edge_type.name} -> {edge.dst_symbol_id}")
+        if DEBUG:
+            dst_symbol = runtime_engine.semantic_graph.lookup_symbol(
+                edge.dst_symbol_id
+            )
 
-        if direct_edges:
+            dst_name = (
+                dst_symbol.name
+                if dst_symbol
+                else edge.dst_symbol_id
+            )
+
+            print(
+                f"[DEBUG] Found SYNTHETIC_CONTINUATION:"
+                f" {edge.edge_type.name}"
+                f" -> {dst_name}"
+            )
+
+        if synth_edges:
             # Sort by confidence to ensure we pick the strongest path
-            direct_edges.sort(key=lambda e: getattr(e, 'confidence', 0), reverse=True)
-            next_edges = [direct_edges[0]]
+            synth_edges.sort(key=lambda e: getattr(e, 'confidence', 0), reverse=True)
+            next_edges = [synth_edges[0]]
         else:
             # Fall back to dispatch reconstruction.
             dispatch_edges = [

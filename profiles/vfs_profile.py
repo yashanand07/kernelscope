@@ -78,5 +78,11 @@ VFS_PROFILE = (
             "fsync",
             "iterate_shared",
         },
+        runtime_depth_limit=12,
+
+        terminal_symbols={
+            "generic_file_read_iter",
+            "filemap_read"
+        }
     )
 )

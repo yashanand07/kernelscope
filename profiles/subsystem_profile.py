@@ -32,6 +32,10 @@ class SubsystemSemanticProfile:
 
     valid_dispatch_operations: Set[str] = field(default_factory=set)
 
+    runtime_depth_limit: int = 16
+
+    terminal_symbols: set[str] = field(default_factory=set)
+
     def requires_dispatch_analysis(
         self,
         symbol: str
