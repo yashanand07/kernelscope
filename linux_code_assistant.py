@@ -35,12 +35,27 @@ from runtime_reconstruction.full_branch_expansion import (
 from profiles.subsystem_profile import (
     SubsystemSemanticProfile
 )
-from profiles.scheduler_profile import (
-    SCHEDULER_PROFILE
-)
-from profiles.vfs_profile import (
-    VFS_PROFILE
-)
+# from profiles.scheduler_profile import (
+#     SCHEDULER_PROFILE
+# )
+# from profiles.vfs_profile import (
+#     VFS_PROFILE
+# )
+# from profiles.irq_profile import (
+#     IRQ_PROFILE
+# )
+# from profiles.net_profile import (
+#     NETWORK_PROFILE
+# )
+# from profiles.block_profile import (
+#     BLOCK_PROFILE
+# )
+# from profiles.memory_profile import (
+#     MEMORY_PROFILE
+# )
+# from profiles.workqueue_profile import (
+#     WORKQUEUE_PROFILE
+# )
 from semantic_runtime.traversal_modes import (
     TraversalMode
 )
@@ -691,14 +706,23 @@ def compile_semantic_ir(profile):
         kernel_root=LINUX_ROOT
     )
 
-    print("\n=== Interface Nodes ===")
+    # print("\n=== Interface Nodes ===")
 
-    for symbol in semantic_graph.symbol_table.values():
+    # for symbol in semantic_graph.symbol_table.values():
 
-        if symbol.kind == "synthetic_interface":
-            print(symbol.name)
+    #     # if "fault" in symbol.name:
+    #     #     print(symbol.name)
+    #     # if symbol.kind == SymbolKind.INTERFACE:
+    #     #     print(symbol.name)
 
-    print("=======================\n")
+    #     if "irq" in symbol.name:
+    #         print(symbol.name)
+    # print("=======================\n")
+    # print("\n=== Symbolkind Nodes ===")
+    # for symbol in semantic_graph.symbol_table.values():
+    #     if symbol.kind == SymbolKind.INTERFACE:
+    #         print(symbol.name)
+    # print("=======================\n")
     # ============================================================
     # Phase 4: Resolve Function Pointer Dispatches
     # ============================================================
@@ -717,6 +741,8 @@ def compile_semantic_ir(profile):
 
     for src_name, dst_name in profile.synthetic_bridges.items():
 
+        #print(f"[SYNTHETIC] {src_name} -> {dst_name}")
+
         src_id = None
         dst_id = None
 
@@ -732,6 +758,11 @@ def compile_semantic_ir(profile):
                 dst_id = sym_id
                 break
 
+        # print(
+        #     f"[SYNTHETIC RESOLVE] "
+        #     f"src={src_name}:{src_id} "
+        #     f"dst={dst_name}:{dst_id}"
+        # )
         if not src_id or not dst_id:
             continue
 

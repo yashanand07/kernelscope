@@ -105,11 +105,7 @@ def reconstruct_implementation_path(
             else current_symbol_id
         )
 
-        if symbol_name in profile.terminal_symbols:
-            print(
-                f"[TRACE COMPLETE] {symbol_name}"
-            )
-            break
+        #Original place for terminal symbol check
 
         # Pull Semantic Transitions
         outgoing_edges = (
@@ -119,6 +115,24 @@ def reconstruct_implementation_path(
         )
 
         if not outgoing_edges:
+            break
+
+        # If there is a SYNTHETIC_CONTINUATION edge then keep traversing until we exhaust all synthetic continuations.
+        has_synthetic_continuation = any(
+            edge.edge_type == SemanticEdgeType.SYNTHETIC_CONTINUATION
+            for edge in outgoing_edges
+        )
+
+        is_terminal = (
+            symbol_name in profile.terminal_symbols
+        )
+
+        if (
+            is_terminal and not has_synthetic_continuation
+        ):
+            print(
+                f"[TRACE COMPLETE] {symbol_name}"
+            )
             break
 
         # Separate Runtime Traversal Edges
@@ -172,7 +186,32 @@ def reconstruct_implementation_path(
                 if dst_symbol
                 else edge.dst_symbol_id
             )
+            # print(
+            #     runtime_engine.semantic_graph.resolve_symbol_by_name(
+            #         "vm_operations_struct:fault"
+            #     )
+            # )
+            # if (
+            #     dst_symbol and
+            #     dst_symbol.name in {
+            #         "handle_pte_fault",
+            #         "do_pte_missing",
+            #         "do_fault",
+            #         "do_swap_page",
+            #         "do_wp_page",
+            #     }
+            # ):
+            #     print(
+            #         f"\n\t\t\t\tdump******** {dst_symbol.name} ********"
+            #     )
 
+            # runtime_engine.semantic_graph.dump_symbol_edges(
+            #     edge.dst_symbol_id
+            # )
+
+            # print(
+            #     "\t\t\t\tdump********************************\n"
+            # )
             print(
                 f"    "
                 f"{edge.edge_type.name}"

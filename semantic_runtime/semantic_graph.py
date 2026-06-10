@@ -456,7 +456,7 @@ class SemanticGraph:
         outgoing = self.get_outgoing_edges(symbol_id)
 
         print(
-            f"Outgoing edges for {symbol_id} ({len(outgoing)}):"
+            f"Outgoing edges for {self.resolve_symbol_by_name(symbol_id)} ({symbol_id[:8]}) ({len(outgoing)}):"
         )
 
         for edge in outgoing:
