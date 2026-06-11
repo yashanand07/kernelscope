@@ -196,8 +196,6 @@ class SemanticIRBundle:
 
     symbol_code_index: Dict[str, str]
 
-    ops_index: Dict[str, Set[str]]
-
     metadata: Dict[str, Any]
 
     @staticmethod
@@ -461,143 +459,6 @@ def register_all_symbols(semantic_graph, symbol_index):
             )
 
             entry["code"] += "\n" + data["code"]
-# ------------------------------------------------------------------
-# LEGACY DISPATCH RECONSTRUCTION
-#
-# Older ops-index based dispatch recovery.
-#
-# Retained temporarily as a reference while validating the
-# provider-based dispatch architecture across multiple subsystems.
-#
-# Candidates for removal after:
-#   - Scheduler validation
-#   - VFS validation
-#   - One additional subsystem validation
-# ------------------------------------------------------------------
-def build_dispatch_index(
-    symbol_index,
-    profile
-):
-
-    ops_index = {}
-
-    for key, entry in symbol_index.items():
-
-        symbol = entry["symbol"].strip()
-        if not profile.requires_dispatch_analysis(symbol):
-            continue
-        loaded = entry["code"]
-
-        if (
-            "struct file_operations" not in loaded
-            or
-            "= {" not in loaded
-        ):
-            continue
-
-        # if not profile.requires_dispatch_analysis(symbol):
-        #     continue
-
-        print(symbol)
-        print(loaded[:2000])
-        break
-        provider_pattern = (
-            profile.resolve_provider_pattern(symbol)
-        )
-
-        if provider_pattern is None:
-            continue
-
-        matches = ops_assign_pattern.findall(loaded)
-        print(f"[DEBUG] Analyzing symbol={symbol} for dispatch patterns, "
-              f"matches={matches}"
-        )
-
-        for field, impl in matches:
-
-            if field in profile.valid_dispatch_operations:
-                ops_index.setdefault(field, set()).add(impl)
-
-    return ops_index
-
-
-def resolve_dispatch_edges(
-    semantic_graph,
-    symbol_index,
-    ops_index,
-    profile
-):
-
-    for key, entry in symbol_index.items():
-
-        symbol = entry["symbol"].strip()
-
-        if profile.subsystem_name not in entry["file"]:
-            continue
-
-        loaded = load_full_function(symbol)
-
-        if loaded:
-            full_code = loaded
-        else:
-            full_code = entry["code"]
-
-        matches = [
-            (obj.strip(), fn.strip())
-            for obj, fn in fp_pattern.findall(full_code)
-            if fn not in IGNORE_CALLS
-        ]
-
-        if matches:
-            for obj, method in matches:
-
-                if method not in ops_index:
-                    if DEBUG:
-                        print(
-                            f"Dispatch method={method}, "
-                            f"in ops_index={method in ops_index}"
-                        )
-                    continue
-
-                implementations = ops_index[method]
-                if DEBUG:
-                    print(
-                        f"Resolved implementations for "
-                        f"{method}: {implementations}"
-                    )
-
-                for impl in implementations:
-
-                    if impl.lower() in symbol_index:
-                        impl_file = symbol_index[impl.lower()]["file"]
-                    else:
-                        impl_file = "unknown"
-                    dst_symbol_id = semantic_graph.resolve_symbol_by_name(impl)
-
-                    if not dst_symbol_id:
-                        continue
-                    if impl in profile.low_signal_calls:
-                        confidence = 0.1
-                    else:
-                        confidence = 1.0
-                    current_src_symbol_id = (
-                        semantic_graph.resolve_symbol_by_name(
-                            symbol
-                        )
-                    )
-                    semantic_graph.register_semantic_edge(
-                        src_symbol_id=current_src_symbol_id,
-
-                        dst_symbol_id=dst_symbol_id,
-
-                        edge_type=SemanticEdgeType.FUNCTION_POINTER_DISPATCH,
-
-                        confidence=confidence,
-
-                        resolution_source="ops_dispatch_parse",
-
-                        is_deterministic=False
-                    )
 
 # -----------------------------
 # Semantic IR Graph compilation
@@ -610,7 +471,6 @@ def compile_semantic_ir(profile):
     call_graph = {}
     fp_call_graph = {}
     symbol_index = {}
-    ops_index = {}
     symbol_freq = {}
     symbol_code_index = {}
 
@@ -684,19 +544,6 @@ def compile_semantic_ir(profile):
                 )
 
     # ============================================================
-    # Phase 3: Build Dispatch Implementation Index
-    # ============================================================
-
-    # ops_index = build_dispatch_index(
-    #     symbol_index,
-    #     profile
-    # )
-
-    # print(
-    #     f"Dispatch implementation fields discovered: "
-    #     f"{len(ops_index)}"
-    # )
-    # ============================================================
     # Phase 3: Build Dispatch Edges
     # ============================================================
 
@@ -723,16 +570,6 @@ def compile_semantic_ir(profile):
     #     if symbol.kind == SymbolKind.INTERFACE:
     #         print(symbol.name)
     # print("=======================\n")
-    # ============================================================
-    # Phase 4: Resolve Function Pointer Dispatches
-    # ============================================================
-
-    # resolve_dispatch_edges(
-    #     semantic_graph,
-    #     symbol_index,
-    #     ops_index,
-    #     profile
-    # )
 
 
     # --------------------------------------------------------
@@ -786,7 +623,6 @@ def compile_semantic_ir(profile):
     bundle = SemanticIRBundle(
         semantic_graph=semantic_graph,
         symbol_code_index=symbol_code_index,
-        ops_index=ops_index,
         metadata=generate_semantic_ir_metadata(
             semantic_graph,
             profile
@@ -1068,10 +904,6 @@ STOPWORDS = {
     "how", "does", "the", "linux", "what", "where", "why",
     "a", "an", "is"
 }
-
-#ops_index = {}
-
-
 
 
 # -----------------------------
