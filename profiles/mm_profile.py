@@ -20,6 +20,10 @@ MM_PROFILE = (
 
         entrypoints=["handle_mm_fault", "do_page_fault", "__alloc_pages"],
 
+        entrypoint_files=[
+            "mm/memory.c"
+        ],
+
         low_signal_calls={
             "page_get",
             "put_page",

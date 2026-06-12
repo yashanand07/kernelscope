@@ -28,6 +28,8 @@ NET_PROFILE = (
 
         entrypoints=["netif_receive_skb", "dev_queue_xmit", "napi_poll", "tcp_v4_rcv"],
 
+        entrypoint_files=[],
+
         low_signal_calls={
             "skb_get",
             "kfree_skb",

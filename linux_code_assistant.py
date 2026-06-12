@@ -1,20 +1,24 @@
 """
-Linux Kernel Flow Explorer
--------------------------------------------------
-Semantic execution analysis for the Linux kernel.
+=================================================================
+KernelScope
+-----------------------------------------------------------------
+Semantic Runtime Reconstruction for the Linux Kernel.
 
-Reconstructs kernel execution paths using:
-- semantic retrieval
-- subsystem-aware reranking
-- subsystem dispatch reconstruction
-- execution-path analysis
-- local LLM reasoning
+Reconstructs dynamic execution paths using a local, declarative
+pipeline rather than relying on static AST parsing or LLM guesswork:
+- 2-Pass Semantic IR Compiler (Symbol Registry + Provider Extraction)
+- Subsystem Semantic Profiles (Sched, VFS, MM, Net, Block, IRQ)
+- Dispatch-Aware Runtime Reconstruction
+- 4-Dimensional Execution Traversal
+- Runtime-Constrained Local LLM Interpretation
 
-Uses:
-- Ctags for symbol resolution
-- ChromaDB for semantic retrieval
-- Mermaid for execution visualization
-- Ollama for grounded local reasoning
+Core Infrastructure:
+- Universal Ctags & Balanced Brace Extraction (Code Identity)
+- Persistent Binary Caching (Rapid IR Loads)
+- Mermaid.js (Execution Visualization)
+- ChromaDB (Semantic Vector Retrieval)
+- Ollama (Offline, Grounded Reasoning)
+=================================================================
 """
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
@@ -35,27 +39,6 @@ from runtime_reconstruction.full_branch_expansion import (
 from profiles.subsystem_profile import (
     SubsystemSemanticProfile
 )
-# from profiles.scheduler_profile import (
-#     SCHEDULER_PROFILE
-# )
-# from profiles.vfs_profile import (
-#     VFS_PROFILE
-# )
-# from profiles.irq_profile import (
-#     IRQ_PROFILE
-# )
-# from profiles.net_profile import (
-#     NETWORK_PROFILE
-# )
-# from profiles.block_profile import (
-#     BLOCK_PROFILE
-# )
-# from profiles.memory_profile import (
-#     MEMORY_PROFILE
-# )
-# from profiles.workqueue_profile import (
-#     WORKQUEUE_PROFILE
-# )
 from semantic_runtime.traversal_modes import (
     TraversalMode
 )
@@ -90,7 +73,7 @@ from semantic_runtime.semantic_graph import (
 from semantic_runtime.symbol_type import (
     SymbolKind
 )
-
+from config.config import app_config
 
 import requests
 import json
@@ -115,11 +98,6 @@ ACTIVE_PROFILE = None
 ACTIVE_SEMANTIC_BUNDLE = None
 CURRENT_IR_VERSION = 1
 
-
-
-
-
-
 CACHE_DIR = "semantic_cache"
 
 SEMANTIC_IR_FILE = os.path.join(
@@ -131,30 +109,9 @@ SEMANTIC_IR_BUNDLE_FILE = os.path.join(
     "semantic_ir_bundle.pkl"
 )
 
-
-
-# ============================================================
-# # SECTION 1 - Semantic IR Core Definitions - Starts
-# ============================================================
-
-"""
-Contains:
-
-SymbolIdentity
-SemanticEdge
-SemanticGraph
-"""
-
-
-
-
-# ============================================================
-# SECTION 1 - SEMANTIC IR CORE DEFINITIONS - Ends
-# ============================================================
-
-
 # --------------------------------------------------------
-# Runtime Execution Engine - reconstructs execution paths using the semantic graph and heuristics
+# Runtime Execution Engine - reconstructs execution
+# paths using the semantic graph and heuristics
 # --------------------------------------------------------
 
 class RuntimeExecutionEngine:
@@ -186,7 +143,7 @@ class RuntimeExecutionEngine:
 
    
 # ============================================================
-# SECTION 2 - Runtime Execution Layer - Ends
+# Runtime Execution Layer - Ends
 # ============================================================
 
 @dataclass
@@ -199,65 +156,25 @@ class SemanticIRBundle:
     metadata: Dict[str, Any]
 
     @staticmethod
-    def save_semantic_ir_bundle(
-        bundle,
-    ):
-        os.makedirs(CACHE_DIR, exist_ok=True)
-
-        with open(SEMANTIC_IR_BUNDLE_FILE, "wb") as f:
+    def save_semantic_ir_bundle(bundle):
+        os.makedirs(os.path.dirname(app_config.cache.semantic_bundle_path), exist_ok=True)
+        with open(app_config.cache.semantic_bundle_path, "wb") as f:
             pickle.dump(bundle, f)
 
     @staticmethod
     def load_semantic_ir_bundle():
-        os.makedirs(CACHE_DIR, exist_ok=True)
+        if not app_config.cache.enabled:
+            return None
         try:
-            with open(SEMANTIC_IR_BUNDLE_FILE, "rb") as f:
-                bundle = pickle.load(f)
-                return bundle
+            with open(app_config.cache.semantic_bundle_path, "rb") as f:
+                return pickle.load(f)
         except Exception as e:
             print(f"Error loading semantic IR bundle: {e}")
             return None
 
 
-
-
-
-
-
 # =================================================================
-# 1. NETWORKING & OLLAMA CONFIGURATION
-# =================================================================
-def get_ollama_config():
-    """Detects WSL or Linux environments and sets the Ollama API endpoint."""
-    # Check if we are running inside Windows Subsystem for Linux
-    is_wsl = "microsoft-standard" in os.uname().release.lower()
-    
-    if is_wsl:
-        try:
-            # Get the Windows host IP address from the WSL gateway
-            cmd = "ip route show default | awk '{print $3}'"
-            host_ip = subprocess.check_output(cmd, shell=True).decode().strip()
-            url = f"http://{host_ip}:11434"
-        except Exception:
-            url = "http://127.0.0.1:11434"
-    else:
-        url = "http://127.0.0.1:11434"
-
-    # Perform a health check to see if the LLM server is reachable
-    try:
-        #requests.get(url, timeout=1)
-        requests.get(f"{url}/api/tags", timeout=1)
-        return url, True
-    except requests.exceptions.RequestException:
-        return url, False
-
-OLLAMA_HOST, IS_ACTIVE = get_ollama_config()
-OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
-
-print(f"[OLLAMA] Using endpoint: {OLLAMA_URL}")
-
-# =================================================================
-# 2. CORE REGEX PATTERNS
+# CORE REGEX PATTERNS
 # =================================================================
 
 # Matches standard function calls: func_name(
@@ -279,37 +196,16 @@ ops_assign_pattern = re.compile(
     re.MULTILINE
 )
 
-# Cache metadata file path.
-#METADATA_FILE = os.path.join(CACHE_DIR, "metadata.json")
-
-# -----------------------------
-# Linux Kernel commit tracking - MetaData Helpers
-# -----------------------------
-
-# def get_kernel_commit():
-#     try:
-#         return subprocess.check_output(
-#             ["git", "rev-parse", "HEAD"],
-#             cwd=LINUX_ROOT
-#         ).decode().strip()
-#     except:
-#         return "unknown"
-
 def get_kernel_commit():
-
     try:
-
         commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
-
-            cwd=LINUX_ROOT
+            cwd=app_config.project.linux_root  # <-- Replaces LINUX_ROOT
         ).decode().strip()
-
         return commit
-
     except Exception:
-
         return "unknown"
+
 
 def build_metadata():
     return {
@@ -425,7 +321,7 @@ def semantic_ir_cache_valid(profile):
         return False
 
 # =================================================================
-# SECTION 3 - Semantic Graph Compilation - 2 Pass Approach - Starts
+# Semantic Graph Compilation - 2 Pass Approach
 # =================================================================
 # Moving onto 2 pass compilation Registration to build the
 # semantic graph with edges in compile_semantic_ir
@@ -748,11 +644,19 @@ def run_semantic_workflow(
     entrypoint = profile.entrypoints[0]
 
     start_symbol_id = (
-        semantic_graph.resolve_symbol_by_name(
-            entrypoint
+        semantic_graph.resolve_entrypoint_symbol(
+            entrypoint,
+            profile
         )
     )
 
+    # symbol = semantic_graph.lookup_symbol(start_symbol_id)
+
+    # print(
+    #     f"[ENTRYPOINT] "
+    #     f"{symbol.name} "
+    #     f"{symbol.file_path}"
+    # )
     if not start_symbol_id:
         raise RuntimeError(
             f"Unable to resolve entrypoint: "
@@ -1318,19 +1222,78 @@ Example:
 """
     )
 
+def ask_llm(
+    prompt,
+    model=app_config.llm.ollama.model,
+    temperature=0.1,
+    num_predict=1200,
+    debug=app_config.runtime.debug_traversal
+):
+    if not app_config.llm.enabled:
+        return "LLM integration is disabled in config.yaml."
+
+    if debug:
+        print("PROMPT SIZE:", len(prompt))
+        print("\n========== LLM PROMPT ==========\n")
+        print(prompt[:12000])
+        print("\n========== END PROMPT ==========\n")
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": num_predict,
+        }
+    }
+    #print(f"Could not connect to Ollama at f"{app_config.llm.ollama.endpoint}/api/tags")
+
+    try:
+        response = requests.post(
+            f"{app_config.llm.ollama.endpoint}/api/generate",
+            json=payload,
+            timeout=300
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        answer = data.get("response", "").strip()
+
+        if debug:
+            print("\n========== LLM RESPONSE ==========\n")
+            print(answer)
+            print("\n=================================\n")
+
+        return answer
+
+    except requests.exceptions.Timeout:
+        return "LLM timed out. Try reducing runtime graph size."
+    except requests.exceptions.ConnectionError:
+        return f"Could not connect to Ollama at {app_config.llm.ollama.endpoint}."
+    except Exception as e:
+        return f"LLM error: {str(e)}"
+
+
 def main():
     global ACTIVE_PROFILE, ACTIVE_SEMANTIC_BUNDLE
-    if not IS_ACTIVE:
-        print(f"\n[!] CANNOT CONNECT TO OLLAMA AT {OLLAMA_HOST}")
-        print("-" * 50)
-        print("Quick Fixes:")
-        print("1. If on Windows/WSL: Run 'scripts/start_ollama.bat'")
-        print("2. If on Ubuntu: Run 'ollama serve'")
-        print("3. Ensure OLLAMA_HOST is set to 0.0.0.0 on the host machine.")
-        print("-" * 50)
-        exit(1)
 
-    print(f"✅ Connected to Ollama at {OLLAMA_HOST}")
+    # 1. NEW CONFIG-BASED CHECK
+    if not app_config.llm.enabled:
+        print("\n[!] LLM Integration is DISABLED in config.yaml")
+    else:
+        # Optional: You can do a quick requests.get() here to ensure the server is up
+        try:
+            requests.get(f"{app_config.llm.ollama.endpoint}/api/tags", timeout=1)
+            print(f"✅ Connected to Ollama at {app_config.llm.ollama.endpoint}")
+        except requests.exceptions.RequestException:
+            print(f"\n[!] CANNOT CONNECT TO OLLAMA AT {app_config.llm.ollama.endpoint}")
+            print("-" * 50)
+            print("Quick Fixes:")
+            print("1. If on Windows/WSL: Run 'scripts/start_ollama.bat'")
+            print("2. If on Ubuntu: Run 'ollama serve'")
+            print("-" * 50)
+            exit(1)
 
     while True:
         print_query_modes()
@@ -1415,7 +1378,12 @@ def main():
         )
 
         print("Exporting Mermaid runtime graph...")
-        MermaidGraphExporter.export_runtime_graph(runtime_graph, semantic_graph, profile)
+        MermaidGraphExporter.export_runtime_graph(
+            runtime_graph, 
+            semantic_graph, 
+            profile,
+            output_dir=app_config.exports.mermaid_dir
+        )
         print("Mermaid export completed. Check the 'exports' directory.")
 
         runtime_prompt = build_runtime_prompt(
@@ -1423,10 +1391,6 @@ def main():
 
         answer = ask_llm(
            prompt=runtime_prompt,
-           model="qwen2.5-coder:7b", #profile.preferred_model,
-           temperature=0.1,
-           num_predict=1200,
-           debug=False
         )
 
         print("\n*********************** Answer from the LLM ************************\n")

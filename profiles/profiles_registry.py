@@ -61,6 +61,10 @@ IRQ_KEYWORDS = {
     "hardirq",
 }
 
+WORKQUEUE_KEYWORDS = {
+    "workqueue",
+}
+
 def determine_subsystem_profile(query: str):
     q = query.lower()
 
@@ -78,5 +82,7 @@ def determine_subsystem_profile(query: str):
         return BLOCK_PROFILE
     elif any(k in q for k in MM_KEYWORDS):
         return MM_PROFILE
+    elif any(k in q for k in WORKQUEUE_KEYWORDS):
+        return WORKQUEUE_PROFILE
     else:
         return None

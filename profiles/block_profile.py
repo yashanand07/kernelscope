@@ -21,29 +21,32 @@ BLOCK_PROFILE = (
         subsystem_name="block",
         
         entrypoints=["submit_bio", "blk_mq_submit_bio", "blk_mq_dispatch_rq_list"],
-        
-        low_signal_calls={
-            "bio_get",
-            "bio_put",
-            "blk_queue_enter",
-            "blk_queue_exit",
-            "rcu_read_lock",
-            "spin_lock_irqsave",
+
+        entrypoint_files=[
+            "block/blk-core.c"
+        ],
+
+        low_signal_calls = {
+            "should_fail_bio",
+            "should_fail_request",
+            "should_fail",
+            "should_fail_ex",
+            "fail_stacktrace",
         },
         
         execution_spine_boost={
             "submit_bio": 10.0,
             "submit_bio_noacct": 10.0,
+            "submit_bio_noacct_nocheck": 10.0,
             "blk_mq_submit_bio": 10.0,
-            "__blk_mq_issue_directly": 10.0,
-            "blk_mq_dispatch_rq_list": 10.0,
-            "blk_mq_sched_insert_request": 10.0,
         },
         
-        high_value_transitions={
+        high_value_transitions = {
             ("submit_bio", "submit_bio_noacct"): 20.0,
-            ("submit_bio_noacct", "blk_mq_submit_bio"): 20.0,
-            ("blk_mq_submit_bio", "__blk_mq_issue_directly"): 20.0,
+            ("submit_bio_noacct", "submit_bio_noacct_nocheck"): 20.0,
+            ("submit_bio_noacct_nocheck", "__submit_bio_noacct"): 20.0,
+            ("__submit_bio_noacct", "__submit_bio"): 20.0,
+            ("__submit_bio", "blk_mq_submit_bio"): 20.0,
         },
         
         synthetic_bridges={

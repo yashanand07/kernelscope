@@ -1,0 +1,25 @@
+project:
+  linux_root: "/home/yash/eternity/linux"
+
+cache:
+  enabled: true
+  semantic_bundle_path: "./semantic_cache/semantic_ir_bundle.pkl"
+
+llm:
+  enabled: true
+  provider: "ollama"
+  ollama:
+    endpoint: "http://127.0.0.1:11434"
+    model: "qwen2.5-coder:7b"
+
+exports:
+  mermaid_dir: "./exports/mermaid"
+  graph_dir: "./exports/graphs"
+  report_dir: "./exports/reports"
+
+runtime:
+  debug_traversal: false
+  max_depth_default: 16
+
+profiles:
+  auto_detect: true

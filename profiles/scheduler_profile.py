@@ -20,6 +20,10 @@ SCHEDULER_PROFILE = (
 
         entrypoints=["schedule", "try_to_wake_up", "wake_up_process"],
 
+        entrypoint_files=[
+            "kernel/sched/core.c"
+        ],
+
         low_signal_calls = {
             "lockdep_assert",
             "task_is_running",

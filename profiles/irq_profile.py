@@ -27,7 +27,11 @@ IRQ_PROFILE = (
         subsystem_name="kernel/irq",
         
         entrypoints=["handle_irq_event", "__do_softirq", "irq_exit"],
-        
+
+        entrypoint_files=[
+            "kernel/irq/handle.c"
+        ],
+
         low_signal_calls={
             "irq_state_set",
             "irqd_irq_disabled",

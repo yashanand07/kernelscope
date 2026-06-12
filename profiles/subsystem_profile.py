@@ -11,6 +11,8 @@ class SubsystemSemanticProfile:
 
     entrypoints: list[str]
 
+    entrypoint_files: List[str]
+
     associated_structs: set[str]
 
     dispatch_provider_files: List[str]

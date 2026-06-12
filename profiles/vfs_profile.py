@@ -23,7 +23,9 @@ VFS_PROFILE = (
             "vfs_write",
             "do_sys_open",
         ],
-
+        entrypoint_files=[
+            "fs/read_write.c"
+        ],
         low_signal_calls={
             "might_fault",
             "fsnotify_access",

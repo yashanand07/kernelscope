@@ -451,7 +451,33 @@ class SemanticGraph:
             symbol_name
         )
 
-    def dump_symbol_edges(self, symbol_id: str):
+    def resolve_entrypoint_symbol(
+        self,
+        symbol_name: str,
+        profile
+    ):
+        files = getattr(
+            profile,
+            "entrypoint_files",
+            []
+        )
+
+        if files:
+            # print(
+            #     f"[RESOLVE] {symbol_name} "
+            #     f"preferred_files={files}"
+            # )
+            for symbol_id, symbol in self.symbol_table.items():
+
+                if (
+                    symbol.name == symbol_name
+                    and symbol.file_path in files
+                ):
+                    return symbol_id
+
+        return self.name_to_symbol_id.get(symbol_name)
+
+    def dump_symbol_edges(self, symbol_id: str, profile=None):
 
         outgoing = self.get_outgoing_edges(symbol_id)
 

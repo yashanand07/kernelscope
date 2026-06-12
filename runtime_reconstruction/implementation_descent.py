@@ -187,31 +187,24 @@ def reconstruct_implementation_path(
                 else edge.dst_symbol_id
             )
             # print(
-            #     runtime_engine.semantic_graph.resolve_symbol_by_name(
-            #         "vm_operations_struct:fault"
-            #     )
+            #     f"\n\t\t\t\tdump******** __submit_bio_noacct ********"
             # )
-            # if (
-            #     dst_symbol and
-            #     dst_symbol.name in {
-            #         "handle_pte_fault",
-            #         "do_pte_missing",
-            #         "do_fault",
-            #         "do_swap_page",
-            #         "do_wp_page",
-            #     }
-            # ):
-            #     print(
-            #         f"\n\t\t\t\tdump******** {dst_symbol.name} ********"
-            #     )
+            # symbol_id = runtime_engine.semantic_graph.resolve_entrypoint_symbol(
+            #     "__submit_bio_noacct",
+            #     profile
+            # )
+
+            # print(f"Resolved ID: {symbol_id}")
 
             # runtime_engine.semantic_graph.dump_symbol_edges(
-            #     edge.dst_symbol_id
+            #     runtime_engine.semantic_graph.resolve_entrypoint_symbol(
+            #         "__submit_bio_noacct", profile
+            #     )
             # )
-
             # print(
             #     "\t\t\t\tdump********************************\n"
             # )
+
             print(
                 f"    "
                 f"{edge.edge_type.name}"

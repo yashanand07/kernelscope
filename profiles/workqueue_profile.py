@@ -22,8 +22,18 @@ WORKQUEUE_PROFILE = (
     SubsystemSemanticProfile(
         subsystem_name="kernel/workqueue",
         
-        entrypoints=["queue_work", "flush_work", "worker_thread"],
-        
+        entrypoints=[
+            "queue_work_on",
+            "worker_thread",
+        ],
+
+        # entrypoints=[
+        #     "worker_thread"
+        # ],
+        entrypoint_files=[
+            "kernel/workqueue.c"
+        ],
+
         low_signal_calls={
             "local_irq_save",
             "local_irq_restore",
@@ -31,6 +41,11 @@ WORKQUEUE_PROFILE = (
             "spin_unlock_irq",
             "lock_map_acquire",
             "lock_map_release",
+            "debug_work_activate",
+            "debug_object_activate",
+            "debug_objects_fill_pool",
+            "pool_should_refill",
+            "pool_count",
         },
         
         execution_spine_boost={
@@ -40,13 +55,22 @@ WORKQUEUE_PROFILE = (
             "insert_work": 10.0,
             "worker_thread": 10.0,
             "process_one_work": 10.0,
+            #"set_work_pwq": 10.0,
+            #"get_pwq": 10.0,
+            "process_scheduled_works": 10.0,
+            "process_one_work": 10.0,
+            "process_scheduled_works": 10.0,
+            "process_one_work": 10.0,
         },
         
         high_value_transitions={
+            ("insert_work", "set_work_pwq"): 20.0,
             ("queue_work", "queue_work_on"): 20.0,
             ("queue_work_on", "__queue_work"): 20.0,
             ("__queue_work", "insert_work"): 20.0,
             ("worker_thread", "process_one_work"): 20.0,
+            ("worker_thread", "process_scheduled_works"): 20.0,
+            ("process_scheduled_works", "process_one_work"): 20.0,
         },
         
         synthetic_bridges={
@@ -73,7 +97,7 @@ WORKQUEUE_PROFILE = (
         
         runtime_depth_limit=12,
         terminal_symbols={
-            "process_one_work"
+            "work_struct:func"
         }
     )
 )
