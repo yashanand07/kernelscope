@@ -1,8 +1,8 @@
 import json
 import re
 from pathlib import Path
+from config.config import app_config
 
-LINUX_ROOT = "."
 debug = False
 
 def extract_struct_initializer(
@@ -140,6 +140,9 @@ def extract_function(file_path, start_line):
 
 
 written = 0
+LINUX_ROOT = app_config.project.linux_root
+print(f"LINUX_ROOT - ({LINUX_ROOT})")
+exit
 
 with open("chunks.jsonl", "w") as out:
 

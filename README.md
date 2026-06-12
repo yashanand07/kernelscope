@@ -110,6 +110,8 @@ Implemented:
 - persistent semantic IR bundle caching
 - subsystem semantic profiles
 - runtime-constrained LLM prompting
+- MM subsystem traversal
+- VFS subsystem traversal
 
 Current scheduler dispatch reconstruction:
 
@@ -196,6 +198,80 @@ Traversal-Mode Reconstruction
 Mermaid Runtime Graph Export
 ↓
 Runtime-Constrained LLM Interpretation
+```
+---
+
+
+# High-Level Design Diagram (Mermaid)
+
+Here is a clean architectural map detailing the data flow from raw source code down to the presentation layer. 
+
+```mermaid
+graph TD
+
+    %% Styling
+    classDef storage fill:#000000,stroke:#9affde,stroke-width:2px,color:#f5f5f5;
+    classDef llm fill:#1e293b,stroke:#a78bfa,stroke-width:2px,color:#f5f5f5;
+    classDef config fill:#1f2937,stroke:#fbbf24,stroke-width:2px,color:#f5f5f5;
+
+    A[Linux Kernel Source]
+
+    A --> B[Ctags Symbol Extraction]
+    A --> C[Provider Pattern Extraction]
+
+    subgraph "Semantic IR Compiler"
+        B --> D[Symbol Registry]
+        C --> E[Dispatch Reconstruction]
+        E --> F[Synthetic Continuations]
+    end
+
+    D --> G[(Semantic Runtime IR)]:::storage
+    E --> G
+    F --> G
+
+    H[Subsystem Profiles]:::config
+    I[config.yaml]:::config
+
+    G --> J[Runtime Execution Engine]
+    H --> J
+    I --> J
+
+    subgraph "Traversal Modes"
+        J --> K[Runtime Spine Analysis]
+        J --> L[Implementation Descent]
+        J --> M[Dispatch Analysis]
+        J --> N[Full Branch Exploration]
+    end
+
+    K --> O[Runtime Execution Graph]
+    L --> O
+    M --> O
+    N --> O
+
+    subgraph "Presentation Layer"
+        O --> P[Mermaid Export]
+        O --> Q[Prompt Builder]
+        Q --> R[Ollama / Local LLM]:::llm
+        R --> S[Grounded Explanation]
+    end
+```
+---
+
+# Current Architecture Milestone
+
+```text
+✓ Semantic IR generation
+✓ Provider-based dispatch reconstruction
+✓ Synthetic continuation framework
+✓ Scheduler profile
+✓ VFS profile
+✓ MM profile
+✓ IRQ profile
+✓ Block profile
+✓ Workqueue submission profile
+✓ Mermaid export
+✓ Ollama integration
+✓ YAML configuration layer
 ```
 
 ---
@@ -311,6 +387,7 @@ runtime_reconstruction/
 semantic_runtime/
 visualization/
 semantic_cache/
+config/
 ```
 
 Key architecture layers:
@@ -326,6 +403,9 @@ Key architecture layers:
 
 - visualization/
     Mermaid export and graph rendering
+
+- config/
+    yaml config file, config loading script
 
 ---
 
@@ -366,6 +446,25 @@ Implementation descent can still expand deeply into helper internals.
 
 ---
 
+# Sample traces
+
+```text
+schedule()
+→ pick_next_task_fair()
+→ context_switch()
+
+handle_mm_fault()
+→ vm_operations:fault
+→ filemap_fault()
+
+handle_irq_event()
+→ irqaction:handler
+
+submit_bio()
+→ blk_mq_submit_bio()
+```
+---
+
 # Planned Work
 
 ## Runtime Reconstruction
@@ -373,8 +472,6 @@ Implementation descent can still expand deeply into helper internals.
 - execution continuation scoring
 - wakeup-flow reconstruction
 - IRQ execution reconstruction
-- MM subsystem traversal
-- VFS subsystem traversal
 
 ## Semantic Runtime Modeling
 - semantic runtime summaries
