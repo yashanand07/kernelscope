@@ -142,7 +142,6 @@ def extract_function(file_path, start_line):
 written = 0
 LINUX_ROOT = app_config.project.linux_root
 print(f"LINUX_ROOT - ({LINUX_ROOT})")
-exit
 
 with open("chunks.jsonl", "w") as out:
 
