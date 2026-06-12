@@ -91,9 +91,9 @@ This creates a large `tags` file used for symbol lookup which needs to be copied
 Run:
 
 ```bash
-git clone https://github.com/yashanand07/linux-kernel-flow-explorer.git
-cp tags linux-kernel-flow-explorer
-cd linux-kernel-flow-explorer
+git clone https://github.com/yashanand07/kernelscope.git
+cp tags kernelscope
+cd kernelscope
 ```
 
 ---

@@ -1,4 +1,4 @@
-# KernelScope
+# KernelScope - New Avatar of Linux Flow Explorer
 ### Semantic Runtime Reconstruction for the Linux Kernel
 
 ⚡ Runs fully locally. No API keys. No cloud dependency. No usage cost.
