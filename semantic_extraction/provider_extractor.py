@@ -123,12 +123,13 @@ def extract_provider_dispatch_edges(
 
                     # STEP 4: Validate against the profile's allowed operations
                     if operation in profile.valid_dispatch_operations:
-                        print(
-                            f"[PROVIDER] "
-                            f"{provider_name}.{operation}"
-                            f" -> "
-                            f"{concrete_func}"
-                        )
+                        if app_config.debug_traversal:
+                            print(
+                                f"[PROVIDER] "
+                                f"{provider_name}.{operation}"
+                                f" -> "
+                                f"{concrete_func}"
+                            )
                         
                         # STEP 5: Create the raw semantic dispatch edge data
                         #extracted_edges.append((operation, concrete_func))
@@ -141,12 +142,12 @@ def extract_provider_dispatch_edges(
                             )
                         )
                         
-                        # (Optional Debug: print(f"Found: {provider_name}.{operation} -> {concrete_func}"))
-                        print(
-                            f"[DISPATCH] "
-                            f"{provider_name}.{operation}"
-                            f" -> "
-                            f"{concrete_func}"
-                        )
+                        if app_config.debug_traversal:
+                            print(
+                                f"[DISPATCH] "
+                                f"{provider_name}.{operation}"
+                                f" -> "
+                                f"{concrete_func}"
+                            )
 
     return extracted_edges

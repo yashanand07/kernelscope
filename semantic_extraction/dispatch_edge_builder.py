@@ -26,10 +26,11 @@ def build_dispatch_edges(
         )
     )
 
-    print(
-        f"[DISPATCH] extracted "
-        f"{len(raw_edges)} provider edges"
-    )
+    if app_config.debug_traversal:
+        print(
+            f"[DISPATCH] extracted "
+            f"{len(raw_edges)} provider edges"
+        )
 
     dispatch_count = 0
 
@@ -40,17 +41,33 @@ def build_dispatch_edges(
         concrete_func
     ) in raw_edges:
 
-        dst_symbol_id = (
-            semantic_graph.resolve_symbol_by_name(
-                concrete_func
-            )
+        matches = semantic_graph.resolve_symbols_by_name(
+            concrete_func
         )
 
-        if not dst_symbol_id:
-            print(
-                f"[DISPATCH] unresolved implementation: "
-                f"{concrete_func}"
-            )
+        if not matches:
+            continue
+
+        if len(matches) > 1:
+            if app_config.debug_traversal:
+                print(
+                    f"[DISPATCH AMBIGUITY] "
+                    f"{concrete_func} -> {len(matches)} matches"
+                )
+                for m in matches[:5]:
+                    print(f"    {m.file_path}")
+
+            continue
+        
+        dst_symbol = matches[0]
+        
+
+        if not dst_symbol:
+            if app_config.debug_traversal:
+                print(
+                    f"[DISPATCH] unresolved implementation: "
+                    f"{concrete_func}"
+                )
             continue
 
         interface_id = (
@@ -63,7 +80,7 @@ def build_dispatch_edges(
 
         semantic_graph.register_semantic_edge(
             src_symbol_id=interface_id,
-            dst_symbol_id=dst_symbol_id,
+            dst_symbol_id=dst_symbol.symbol_id,
             edge_type=SemanticEdgeType.FUNCTION_POINTER_DISPATCH,
             confidence=1.0,
             resolution_source="provider_extraction"
@@ -71,7 +88,8 @@ def build_dispatch_edges(
 
         dispatch_count += 1
 
-    print(
-        f"[DISPATCH] registered "
-        f"{dispatch_count} dispatch edges"
-    )
+    if app_config.debug_traversal:
+        print(
+            f"[DISPATCH] registered "
+            f"{dispatch_count} dispatch edges"
+        )

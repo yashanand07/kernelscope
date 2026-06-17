@@ -13,7 +13,7 @@ from semantic_runtime.ontology import (
 from profiles.subsystem_profile import (
     SubsystemSemanticProfile
 )
-DEBUG = False
+
 def reconstruct_implementation_path(
     runtime_engine,
     profile,
@@ -22,7 +22,7 @@ def reconstruct_implementation_path(
     max_depth: int = 16
 ) -> RuntimeExecutionGraph:
 
-    print(f"Reconstructing Implementation Path for Symbol: {start_symbol_id}")
+    #print(f"Reconstructing Implementation Path for Symbol: {start_symbol_id}")
 
     runtime_graph = RuntimeExecutionGraph()
 
@@ -130,9 +130,10 @@ def reconstruct_implementation_path(
         if (
             is_terminal and not has_synthetic_continuation
         ):
-            print(
-                f"[TRACE COMPLETE] {symbol_name}"
-            )
+            if app_config.debug_traversal:
+                print(
+                    f"[TRACE COMPLETE] {symbol_name}"
+                )
             break
 
         # Separate Runtime Traversal Edges
@@ -169,11 +170,12 @@ def reconstruct_implementation_path(
             if symbol
             else current_symbol_id
         )
-        print(
-            f"\n[DEBUG] CURRENT SYMBOL: "
-            f"{symbol_name}"
-            f" ({current_symbol_id[:8]})"
-        )
+        if app_config.debug_traversal:
+            print(
+                f"\n[DEBUG] CURRENT SYMBOL: "
+                f"{symbol_name}"
+                f" ({current_symbol_id[:8]})"
+            )
 
         for edge in traversable_edges:
 
@@ -186,31 +188,14 @@ def reconstruct_implementation_path(
                 if dst_symbol
                 else edge.dst_symbol_id
             )
-            # print(
-            #     f"\n\t\t\t\tdump******** __submit_bio_noacct ********"
-            # )
-            # symbol_id = runtime_engine.semantic_graph.resolve_entrypoint_symbol(
-            #     "__submit_bio_noacct",
-            #     profile
-            # )
 
-            # print(f"Resolved ID: {symbol_id}")
-
-            # runtime_engine.semantic_graph.dump_symbol_edges(
-            #     runtime_engine.semantic_graph.resolve_entrypoint_symbol(
-            #         "__submit_bio_noacct", profile
-            #     )
-            # )
-            # print(
-            #     "\t\t\t\tdump********************************\n"
-            # )
-
-            print(
-                f"    "
-                f"{edge.edge_type.name}"
-                f" -> "
-                f"{dst_name}"
-            )
+            if app_config.debug_traversal:
+                print(
+                    f"    "
+                    f"{edge.edge_type.name}"
+                    f" -> "
+                    f"{dst_name}"
+                )
         # ------------------------------------------------
         # Runtime Edge Selection
         #
@@ -244,7 +229,7 @@ def reconstruct_implementation_path(
             }
         ]
         # Print the results we just filtered
-        if DEBUG:
+        if app_config.debug_traversal:
             dst_symbol = runtime_engine.semantic_graph.lookup_symbol(
                 edge.dst_symbol_id
             )
@@ -255,11 +240,12 @@ def reconstruct_implementation_path(
                 else edge.dst_symbol_id
             )
 
-            print(
-                f"[DEBUG] Found SYNTHETIC_CONTINUATION:"
-                f" {edge.edge_type.name}"
-                f" -> {dst_name}"
-            )
+            if app_config.debug_traversal:
+                print(
+                    f"[DEBUG] Found SYNTHETIC_CONTINUATION:"
+                    f" {edge.edge_type.name}"
+                    f" -> {dst_name}"
+                )
 
         if synth_edges:
             # Sort by confidence to ensure we pick the strongest path

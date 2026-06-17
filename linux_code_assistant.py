@@ -86,10 +86,10 @@ import chromadb
 import time
 import platform
 import pickle
+from collections import Counter
 
 MAX_DEPTH = 16
 MAX_RUNTIME_NODES = 8
-DEBUG = False
 LINUX_ROOT = os.environ.get(
     "LINUX_ROOT",
     "."
@@ -242,7 +242,7 @@ def generate_semantic_ir_metadata(
     "semantic_ir_stats": {
 
         "symbol_count":
-            len(semantic_graph.symbol_table),
+            len(semantic_graph.symbol_db_by_key),
 
         "semantic_edge_count":
             semantic_graph.number_of_edges(),
@@ -291,7 +291,7 @@ def semantic_ir_cache_valid(profile):
             "subsystem_profiles",
             []
         )
-        if DEBUG:
+        if app_config.debug_traversal:
             print(
                 "Cache metadata loaded. "
                 f"Kernel commit: "
@@ -326,7 +326,7 @@ def semantic_ir_cache_valid(profile):
 # Moving onto 2 pass compilation Registration to build the
 # semantic graph with edges in compile_semantic_ir
 
-def register_all_symbols(semantic_graph, symbol_index):
+def register_all_symbols(semantic_graph, symbol_index, symbol_name_index):
     with open("chunks.jsonl") as f:
 
         for line in f:
@@ -353,6 +353,10 @@ def register_all_symbols(semantic_graph, symbol_index):
                     "code": ""
                 }
             )
+            symbol_name_index.setdefault(
+                symbol.lower(),
+                set()
+            ).add(data["file"])
 
             entry["code"] += "\n" + data["code"]
 
@@ -369,28 +373,36 @@ def compile_semantic_ir(profile):
     symbol_index = {}
     symbol_freq = {}
     symbol_code_index = {}
+    symbol_name_index = {}
 
     # call the 1st pass to register all symbols and build the symbol index with code snippets
     # Phase 1 - Symbol Registration and Indexing - We first register
     # all symbols to build the semantic graph's symbol table.
     register_all_symbols(
         semantic_graph,
-        symbol_index
+        symbol_index,
+        symbol_name_index
     )
-
+    if app_config.debug_traversal:
+        missing_symbols = Counter()
+        ambiguous_symbols = Counter()
+        resolved = 0
     with open("chunks.jsonl") as f:
         for line in f:
             data = json.loads(line)
 
             symbol = data["symbol"]
+            file_path = data["file"]
             # For the moment we keep line=0 (development mode)
             # Eventually use ctags line number
             #yashtbd
-            current_src_symbol_id = (
-                semantic_graph.resolve_symbol_by_name(
-                    symbol
-                )
+            current_src_symbol = semantic_graph.resolve_symbol_by_key(
+                file_path,
+                symbol
             )
+            current_src_symbol_id = current_src_symbol.symbol_id
+            if not current_src_symbol:
+                continue
             code = data["code"]
             symbol_code_index[symbol] = code
 
@@ -408,16 +420,32 @@ def compile_semantic_ir(profile):
             # yashtbd - call graph is not fixed
             #yashcache
             call_graph.setdefault(symbol, set()).update(calls)
+
             for callee in calls:
 
-                # if callee.lower() in symbol_index:
-                #     callee_file = symbol_index[callee.lower()]["file"]
-                # else:
-                #     callee_file = "unknown"
+                matches = symbol_name_index.get(
+                    callee.lower(),
+                    set()
+                )
+                if len(matches) == 0:
+                    if app_config.debug_traversal:
+                        missing_symbols[callee] += 1
+                    continue
+                if len(matches) > 1:
+                    if app_config.debug_traversal:
+                        ambiguous_symbols[callee] += 1
+                    continue
 
-                dst_symbol_id = semantic_graph.resolve_symbol_by_name(callee)
+                if app_config.debug_traversal:
+                    resolved += 1
+                callee_file = next(iter(matches))
 
-                if not dst_symbol_id:
+                dst_symbol = semantic_graph.resolve_symbol_by_key(
+                    callee_file,
+                    callee
+                )
+
+                if not dst_symbol:
                     continue
 
                 if callee in profile.low_signal_calls:
@@ -433,12 +461,20 @@ def compile_semantic_ir(profile):
                     ]
                 semantic_graph.register_semantic_edge(
                     src_symbol_id=current_src_symbol_id,
-                    dst_symbol_id=dst_symbol_id,
+                    dst_symbol_id=dst_symbol.symbol_id,
                     edge_type=SemanticEdgeType.DIRECT_CALL,
                     confidence=confidence,
                     resolution_source="regex_call_parse"
                 )
+    if app_config.debug_traversal:
+        print(f"Resolved:  {resolved}")
+        print("\nTop Missing:")
+        for sym, count in missing_symbols.most_common(25):
+            print(sym, count)
 
+        print("\nTop Ambiguous:")
+        for sym, count in ambiguous_symbols.most_common(25):
+            print(sym, count)
     # ============================================================
     # Phase 3: Build Dispatch Edges
     # ============================================================
@@ -480,16 +516,24 @@ def compile_semantic_ir(profile):
         dst_id = None
 
         # Resolve source symbol
-        for sym_id, sym in semantic_graph.symbol_table.items():
-            if sym.name == src_name:
-                src_id = sym_id
-                break
+        src_matches = semantic_graph.resolve_symbols_by_name(
+            src_name
+        )
+
+        if len(src_matches) != 1:
+            continue
+
+        src_id = src_matches[0].symbol_id
 
         # Resolve destination symbol
-        for sym_id, sym in semantic_graph.symbol_table.items():
-            if sym.name == dst_name:
-                dst_id = sym_id
-                break
+        dst_matches = semantic_graph.resolve_symbols_by_name(
+            dst_name
+        )
+
+        if len(dst_matches) != 1:
+            continue
+
+        dst_id = dst_matches[0].symbol_id
 
         # print(
         #     f"[SYNTHETIC RESOLVE] "
@@ -579,7 +623,7 @@ def load_full_definition(symbol):
                             ]
 
         except Exception:
-            if DEBUG:
+            if app_config.debug_traversal:
                 print(f"Error loading definition for {symbol} from {full_path}")
             continue
 
@@ -735,6 +779,26 @@ def run_semantic_workflow(
         runtime_graph,
         semantic_graph
     )
+
+    if app_config.runtime.debug_traversal:
+        stats = semantic_graph.get_legacy_lookup_stats()
+
+        if stats:
+            print("\n=== Legacy Name Lookups Telemetry ===")
+
+            for caller, data in sorted(
+                stats.items(),
+                key=lambda x: -x[1]["count"]
+            ):
+                symbols = ", ".join(
+                    sorted(data["symbols"])
+                )
+
+                print(
+                    f"  {caller:<30} | "
+                    f"Count: {data['count']:<4} | "
+                    f"Symbols: {symbols}"
+                )
 
     return runtime_graph
 
@@ -1053,7 +1117,7 @@ def ask_llm(
     debug=False
 ):
 
-    if DEBUG:
+    if app_config.debug_traversal:
         print(
             "PROMPT SIZE:",
             len(prompt)
@@ -1068,7 +1132,7 @@ def ask_llm(
         }
     }
 
-    if DEBUG:
+    if app_config.debug_traversal:
 
         print("\n========== LLM PROMPT ==========\n")
 
@@ -1093,7 +1157,7 @@ def ask_llm(
             ""
         ).strip()
 
-        if DEBUG:
+        if app_config.debug_traversal:
 
             print("\n========== LLM RESPONSE ==========\n")
 
@@ -1207,16 +1271,12 @@ Create your query with one prefix:
 
 1 - Runtime Spine Analysis (Default)
     Follow dominant subsystem execution flow
-
 2 - Implementation Descent
     Dive into low-level implementation details
-
 3 - Dispatch Analysis
     Explore runtime function-pointer dispatch
-
 4 - Full Branch Exploration
     Enumerate all semantic execution paths
-
 Example:
 "1-Explain the Linux scheduler"
 """
@@ -1331,7 +1391,7 @@ def main():
 
         elif semantic_ir_cache_valid(profile):
 
-            print("✅ Loading semantic cache...")
+           #print("✅ Loading semantic cache...")
             start = time.time()
             # semantic_graph = (
             #     SemanticGraph.load_semantic_ir(
@@ -1369,7 +1429,7 @@ def main():
         print("Semantic graph stats:")
         if semantic_graph:
             print(semantic_graph.semantic_ir_stats())
-        print("\nKernel Flow Explorer ready.")
+        print("\nKernelScope ready.")
 
         runtime_graph = run_semantic_workflow(
             semantic_graph,
@@ -1386,15 +1446,15 @@ def main():
         )
         print("Mermaid export completed. Check the 'exports' directory.")
 
-        runtime_prompt = build_runtime_prompt(
-            runtime_graph, semantic_graph, cleaned_query, profile, symbol_code_index)
+        # runtime_prompt = build_runtime_prompt(
+        #     runtime_graph, semantic_graph, cleaned_query, profile, symbol_code_index)
 
-        answer = ask_llm(
-           prompt=runtime_prompt,
-        )
+        # answer = ask_llm(
+        #    prompt=runtime_prompt,
+        # )
 
-        print("\n*********************** Answer from the LLM ************************\n")
-        print(answer)
+        # print("\n*********************** Answer from the LLM ************************\n")
+        # print(answer)
 
     #############################
 # -----------------------------
