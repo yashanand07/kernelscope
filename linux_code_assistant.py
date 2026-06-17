@@ -22,19 +22,21 @@ Core Infrastructure:
 """
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
+
 from runtime_reconstruction.implementation_descent import (
     reconstruct_implementation_path
 )
 from runtime_reconstruction.runtime_spine import (
     reconstruct_runtime_spine
 )
-
 from runtime_reconstruction.dispatch_analysis import (
     reconstruct_dispatch_path
 )
-
 from runtime_reconstruction.full_branch_expansion import (
     reconstruct_full_branch_path
+)
+from runtime_reconstruction.generic_entrypoint import (
+    reconstruct_generic_entrypoint
 )
 from profiles.subsystem_profile import (
     SubsystemSemanticProfile
@@ -53,6 +55,8 @@ from semantic_runtime.runtime_graph import (
 from profiles.profiles_registry import (
     determine_subsystem_profile
 )
+from profiles.generic_profile import GENERIC_PROFILE
+
 from enum import Enum
 from hashlib import sha1
 from typing import Dict, List, Optional, Set, Any
@@ -87,6 +91,7 @@ import time
 import platform
 import pickle
 from collections import Counter
+from pathlib import Path
 
 MAX_DEPTH = 16
 MAX_RUNTIME_NODES = 8
@@ -291,7 +296,7 @@ def semantic_ir_cache_valid(profile):
             "subsystem_profiles",
             []
         )
-        if app_config.debug_traversal:
+        if app_config.runtime.debug_traversal:
             print(
                 "Cache metadata loaded. "
                 f"Kernel commit: "
@@ -383,7 +388,7 @@ def compile_semantic_ir(profile):
         symbol_index,
         symbol_name_index
     )
-    if app_config.debug_traversal:
+    if app_config.runtime.debug_traversal:
         missing_symbols = Counter()
         ambiguous_symbols = Counter()
         resolved = 0
@@ -428,15 +433,15 @@ def compile_semantic_ir(profile):
                     set()
                 )
                 if len(matches) == 0:
-                    if app_config.debug_traversal:
+                    if app_config.runtime.debug_traversal:
                         missing_symbols[callee] += 1
                     continue
                 if len(matches) > 1:
-                    if app_config.debug_traversal:
+                    if app_config.runtime.debug_traversal:
                         ambiguous_symbols[callee] += 1
                     continue
 
-                if app_config.debug_traversal:
+                if app_config.runtime.debug_traversal:
                     resolved += 1
                 callee_file = next(iter(matches))
 
@@ -466,7 +471,7 @@ def compile_semantic_ir(profile):
                     confidence=confidence,
                     resolution_source="regex_call_parse"
                 )
-    if app_config.debug_traversal:
+    if app_config.runtime.debug_traversal:
         print(f"Resolved:  {resolved}")
         print("\nTop Missing:")
         for sym, count in missing_symbols.most_common(25):
@@ -623,7 +628,7 @@ def load_full_definition(symbol):
                             ]
 
         except Exception:
-            if app_config.debug_traversal:
+            if app_config.runtime.debug_traversal:
                 print(f"Error loading definition for {symbol} from {full_path}")
             continue
 
@@ -761,6 +766,21 @@ def run_semantic_workflow(
     ):
         runtime_graph = (
             reconstruct_full_branch_path(
+                runtime_engine=runtime_engine,
+                profile=profile,
+                start_symbol_id=start_symbol_id,
+                cpu=0,
+                max_depth=MAX_DEPTH
+            )
+        )
+
+    # Runtime Spine Traversal
+    if (
+        traversal_mode ==
+        TraversalMode.GENERIC_ENTRYPOINT
+    ):
+        runtime_graph = (
+            reconstruct_generic_entrypoint(
                 runtime_engine=runtime_engine,
                 profile=profile,
                 start_symbol_id=start_symbol_id,
@@ -1117,7 +1137,7 @@ def ask_llm(
     debug=False
 ):
 
-    if app_config.debug_traversal:
+    if app_config.runtime.debug_traversal:
         print(
             "PROMPT SIZE:",
             len(prompt)
@@ -1132,7 +1152,7 @@ def ask_llm(
         }
     }
 
-    if app_config.debug_traversal:
+    if app_config.runtime.debug_traversal:
 
         print("\n========== LLM PROMPT ==========\n")
 
@@ -1157,7 +1177,7 @@ def ask_llm(
             ""
         ).strip()
 
-        if app_config.debug_traversal:
+        if app_config.runtime.debug_traversal:
 
             print("\n========== LLM RESPONSE ==========\n")
 
@@ -1257,6 +1277,12 @@ def parse_mode(
             query[2:].strip()
         )
 
+    elif query.startswith("5-"):
+        return (
+            TraversalMode.GENERIC_ENTRYPOINT,
+            query[2:].strip()
+        )
+
     else:
         return (
             TraversalMode.RUNTIME_SPINE,
@@ -1277,8 +1303,12 @@ Create your query with one prefix:
     Explore runtime function-pointer dispatch
 4 - Full Branch Exploration
     Enumerate all semantic execution paths
+5 - Generic Entrypoint Trace
+    Trace execution from ANY specific file and function
 Example:
 "1-Explain the Linux scheduler"
+OR
+"'5-drivers/net/ethernet/intel/igb/igb_main.c igb_open'"
 """
     )
 
@@ -1378,6 +1408,20 @@ def main():
         profile = determine_subsystem_profile(
             cleaned_query
         )
+
+        if traversal_mode == TraversalMode.GENERIC_ENTRYPOINT:
+            profile = GENERIC_PROFILE
+            # Disable the LLm for the moment
+            # Split the query by a space. The initial is the file name and the second
+            # part is the entry point
+            query_split = cleaned_query.split()
+            file_path = Path(LINUX_ROOT) / query_split[0]
+
+            if not file_path.exists():
+                print(f"No file exists. Please give the query again - {query_split[0]}")
+                return
+            profile.entrypoint_files = [query_split[0]]
+            profile.entrypoints = [query_split[1]]
 
         print(f"\n[Profile Detected]: {profile.subsystem_name}\n")
         if (

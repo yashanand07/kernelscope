@@ -13,6 +13,7 @@ from semantic_runtime.ontology import (
 from profiles.subsystem_profile import (
     SubsystemSemanticProfile
 )
+from config.config import app_config
 
 def reconstruct_implementation_path(
     runtime_engine,
@@ -130,7 +131,7 @@ def reconstruct_implementation_path(
         if (
             is_terminal and not has_synthetic_continuation
         ):
-            if app_config.debug_traversal:
+            if app_config.runtime.debug_traversal:
                 print(
                     f"[TRACE COMPLETE] {symbol_name}"
                 )
@@ -170,7 +171,7 @@ def reconstruct_implementation_path(
             if symbol
             else current_symbol_id
         )
-        if app_config.debug_traversal:
+        if app_config.runtime.debug_traversal:
             print(
                 f"\n[DEBUG] CURRENT SYMBOL: "
                 f"{symbol_name}"
@@ -189,7 +190,7 @@ def reconstruct_implementation_path(
                 else edge.dst_symbol_id
             )
 
-            if app_config.debug_traversal:
+            if app_config.runtime.debug_traversal:
                 print(
                     f"    "
                     f"{edge.edge_type.name}"
@@ -229,7 +230,7 @@ def reconstruct_implementation_path(
             }
         ]
         # Print the results we just filtered
-        if app_config.debug_traversal:
+        if app_config.runtime.debug_traversal:
             dst_symbol = runtime_engine.semantic_graph.lookup_symbol(
                 edge.dst_symbol_id
             )
@@ -240,7 +241,7 @@ def reconstruct_implementation_path(
                 else edge.dst_symbol_id
             )
 
-            if app_config.debug_traversal:
+            if app_config.runtime.debug_traversal:
                 print(
                     f"[DEBUG] Found SYNTHETIC_CONTINUATION:"
                     f" {edge.edge_type.name}"

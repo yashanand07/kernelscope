@@ -5,6 +5,7 @@ from .net_profile import NET_PROFILE
 from .block_profile import BLOCK_PROFILE
 from .irq_profile import IRQ_PROFILE
 from .workqueue_profile import WORKQUEUE_PROFILE
+from .generic_profile import GENERIC_PROFILE
 
 SCHED_KEYWORDS = {
     "sched",
@@ -67,13 +68,14 @@ WORKQUEUE_KEYWORDS = {
 
 def determine_subsystem_profile(query: str):
     q = query.lower()
+    print(f"The query is - {query}")
 
+    if query.startswith("5-"):
+        return GENERIC_PROFILE
     if any(k in q for k in SCHED_KEYWORDS):
         return SCHEDULER_PROFILE
-
     if any(k in q for k in VFS_KEYWORDS):
         return VFS_PROFILE
-
     if any(k in q for k in IRQ_KEYWORDS):
         return IRQ_PROFILE
     elif any(k in q for k in NET_KEYWORDS):

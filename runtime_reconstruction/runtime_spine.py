@@ -6,7 +6,7 @@ def reconstruct_runtime_spine(
     max_depth=16
 ):
     print(f"Reconstructing Runtime Spine for Symbol: {start_symbol_id} on CPU: {cpu}")
-    print(f"Using Profile: {profile.profile_name}")
+    print(f"Using Profile: {profile.subsystem_name}")
     print(f"Max Depth: {max_depth}\n")
     print("But I called reconstruct_implementation_path for spine construction...\n")
     return reconstruct_implementation_path(

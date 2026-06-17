@@ -2,6 +2,7 @@ import re
 #import os
 from pathlib import Path
 from typing import List, Tuple, Any
+from config.config import app_config
 
 def _remove_c_comments(text: str) -> str:
     """
@@ -123,7 +124,7 @@ def extract_provider_dispatch_edges(
 
                     # STEP 4: Validate against the profile's allowed operations
                     if operation in profile.valid_dispatch_operations:
-                        if app_config.debug_traversal:
+                        if app_config.runtime.debug_traversal:
                             print(
                                 f"[PROVIDER] "
                                 f"{provider_name}.{operation}"
@@ -142,7 +143,7 @@ def extract_provider_dispatch_edges(
                             )
                         )
                         
-                        if app_config.debug_traversal:
+                        if app_config.runtime.debug_traversal:
                             print(
                                 f"[DISPATCH] "
                                 f"{provider_name}.{operation}"

@@ -15,3 +15,7 @@ class TraversalMode(Enum):
     DISPATCH_ANALYSIS = (
         "DISPATCH_ANALYSIS"
     )
+
+    GENERIC_ENTRYPOINT = (
+        "GENERIC_ENTRYPOINT"
+    )

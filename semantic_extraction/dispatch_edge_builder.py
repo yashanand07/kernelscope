@@ -13,6 +13,7 @@
 from .provider_extractor import extract_provider_dispatch_edges
 from semantic_runtime.semantic_graph import SemanticGraph, SemanticEdgeType
 #from profiles.vfs_profile import VFS_PROFILE
+from config.config import app_config
 
 def build_dispatch_edges(
     semantic_graph,
@@ -26,7 +27,7 @@ def build_dispatch_edges(
         )
     )
 
-    if app_config.debug_traversal:
+    if app_config.runtime.debug_traversal:
         print(
             f"[DISPATCH] extracted "
             f"{len(raw_edges)} provider edges"
@@ -49,7 +50,7 @@ def build_dispatch_edges(
             continue
 
         if len(matches) > 1:
-            if app_config.debug_traversal:
+            if app_config.runtime.debug_traversal:
                 print(
                     f"[DISPATCH AMBIGUITY] "
                     f"{concrete_func} -> {len(matches)} matches"
@@ -63,7 +64,7 @@ def build_dispatch_edges(
         
 
         if not dst_symbol:
-            if app_config.debug_traversal:
+            if app_config.runtime.debug_traversal:
                 print(
                     f"[DISPATCH] unresolved implementation: "
                     f"{concrete_func}"
@@ -88,7 +89,7 @@ def build_dispatch_edges(
 
         dispatch_count += 1
 
-    if app_config.debug_traversal:
+    if app_config.runtime.debug_traversal:
         print(
             f"[DISPATCH] registered "
             f"{dispatch_count} dispatch edges"

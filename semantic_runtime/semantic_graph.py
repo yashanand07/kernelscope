@@ -4,6 +4,7 @@ from typing import Dict, List, Set, Optional, Any
 from .ontology import SemanticEdgeType
 from utils.subsystem_derivation import derive_subsystem
 from .symbol_type import SymbolKind
+from config.config import app_config
 
 # --------------------------------------------------------
 # Exceptions & Core Identity Layer
@@ -252,7 +253,9 @@ class SemanticGraph:
                 key = SymbolKey(file_path, symbol_name)
                 if key in self.symbol_db_by_key:
                     return self.symbol_db_by_key[key].symbol_id
-        
+
+            if profile.subsystem_name == "generic":
+                return None
         # Fallback to ambiguity-aware lookup
         matches = self.resolve_symbols_by_name(
             symbol_name
@@ -347,7 +350,7 @@ class SemanticGraph:
             1 for edges in self.semantic_edges_by_src.values() 
             for edge in edges if edge.edge_type == SemanticEdgeType.FUNCTION_POINTER_DISPATCH
         )
-        if app_config.debug_traversal:
+        if app_config.runtime.debug_traversal:
             print(f"Dispatch edges reconstructed: {count}")
         return count
 
@@ -356,7 +359,7 @@ class SemanticGraph:
             1 for edges in self.semantic_edges_by_src.values() 
             for edge in edges if edge.edge_type == SemanticEdgeType.SYNTHETIC_CONTINUATION
         )
-        if app_config.debug_traversal:
+        if app_config.runtime.debug_traversal:
             print(f"Synthetic edges reconstructed: {count}")
         return count
 
