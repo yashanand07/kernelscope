@@ -33,7 +33,7 @@ from runtime_reconstruction.dispatch_analysis import (
     reconstruct_dispatch_path
 )
 from runtime_reconstruction.full_branch_expansion import (
-    reconstruct_full_branch_path
+    FullBranchExplorer
 )
 from runtime_reconstruction.generic_entrypoint import (
     reconstruct_generic_entrypoint
@@ -764,8 +764,13 @@ def run_semantic_workflow(
         traversal_mode ==
         TraversalMode.FULL_BRANCH_EXPANSION
     ):
-        runtime_graph = (
-            reconstruct_full_branch_path(
+        explorer = FullBranchExplorer(
+            semantic_graph=runtime_engine.semantic_graph,
+            max_depth=MAX_DEPTH
+        )
+
+        runtime_graph, stats = (
+            explorer.reconstruct_full_branch_path(
                 runtime_engine=runtime_engine,
                 profile=profile,
                 start_symbol_id=start_symbol_id,
@@ -773,9 +778,11 @@ def run_semantic_workflow(
                 max_depth=MAX_DEPTH
             )
         )
+        if app_config.runtime.debug_traversal:
+            print(stats)
 
     # Runtime Spine Traversal
-    if (
+    elif (
         traversal_mode ==
         TraversalMode.GENERIC_ENTRYPOINT
     ):
@@ -1482,6 +1489,23 @@ def main():
         )
 
         print("Exporting Mermaid runtime graph...")
+        if app_config.runtime.debug_traversal:
+            print(type(runtime_graph))
+            print(len(runtime_graph.nodes))
+            print(len(runtime_graph.edges))
+            for edge in runtime_graph.edges:
+
+                if edge.src_node_id not in runtime_graph.nodes:
+                    print(
+                        f"MISSING SRC NODE: "
+                        f"{edge.src_node_id}"
+                    )
+
+                if edge.dst_node_id not in runtime_graph.nodes:
+                    print(
+                        f"MISSING DST NODE: "
+                        f"{edge.dst_node_id}"
+                    )
         MermaidGraphExporter.export_runtime_graph(
             runtime_graph, 
             semantic_graph, 
