@@ -38,38 +38,66 @@ def build_dispatch_edges(
     for (
         provider_kind,  # e.g., "file_operations"
         provider_name,
+        file_path,
         operation,
         concrete_func
     ) in raw_edges:
+        # print(
+        #     f"\n[DISPATCH LOOKUP]"
+        #     f"\n  func={concrete_func}"
+        #     f"\n  provider_file={file_path}"
+        # )
+############################### uncomment
+        # dst_symbol = semantic_graph.resolve_best_symbol( concrete_func, file_path)
+        # if not dst_symbol:
+        #     if app_config.runtime.debug_traversal:
+        #         print(
+        #             f"[DISPATCH DROPPED] "
+        #             f"{concrete_func}"
+        #         )
+        #     continue
+###############################
 
-        matches = semantic_graph.resolve_symbols_by_name(
-            concrete_func
-        )
-
-        if not matches:
-            continue
-
-        if len(matches) > 1:
-            if app_config.runtime.debug_traversal:
-                print(
-                    f"[DISPATCH AMBIGUITY] "
-                    f"{concrete_func} -> {len(matches)} matches"
-                )
-                for m in matches[:5]:
-                    print(f"    {m.file_path}")
-
-            continue
+###############################comment
+# --- TEMPORARY DEBUG BLOCK START ---
+        # 1. Fetch raw matches first to see what we are working with
+        raw_matches = semantic_graph.resolve_symbols_by_name(concrete_func)
         
-        dst_symbol = matches[0]
-        
+        if raw_matches:
+            # print(f"\n[DISPATCH DEBUG] Attempting to resolve '{concrete_func}'")
+            # print(f"  Reference File (Provider context): {file_path}")
+            # print(f"  Raw candidates found: {len(raw_matches)}")
+            
+            # 2. Replicate the scoring logic visually
+            for m in raw_matches:
+                score = 0
+                if file_path and m.file_path == file_path:
+                    score += 100
+                if file_path:
+                    score += 10 * semantic_graph.locality_rank(file_path, m.file_path)
+                
+                #print(f"    -> Candidate: {m.file_path} | Score: {score}")
+
+            # 3. Call the actual method
+            dst_symbol = semantic_graph.resolve_best_symbol(
+                concrete_func,
+                reference_file=file_path
+            )
+            
+            # if not dst_symbol:
+            #     print("  [!] RESULT: resolve_best_symbol returned None. Edge dropped.")
+            # else:
+            #     print(f"  [+] RESULT: Success. Chose {dst_symbol.file_path}")
+        else:
+            dst_symbol = None
+        # --- TEMPORARY DEBUG BLOCK END ---
 
         if not dst_symbol:
-            if app_config.runtime.debug_traversal:
-                print(
-                    f"[DISPATCH] unresolved implementation: "
-                    f"{concrete_func}"
-                )
             continue
+###############################
+
+
+
 
         interface_id = (
             semantic_graph

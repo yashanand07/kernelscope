@@ -1,5 +1,5 @@
 import re
-#import os
+import os
 from pathlib import Path
 from typing import List, Tuple, Any
 from config.config import app_config
@@ -39,7 +39,7 @@ def _extract_brace_block(text: str, start_index: int) -> str:
 def extract_provider_dispatch_edges(
     kernel_root: str,
     profile: Any
-) -> List[Tuple[str, str, str, str]]:
+    ) -> List[Tuple[str, str, str, str, str]]:
     """
     Extracts semantic function pointer dispatch edges from C source files.
     
@@ -130,6 +130,7 @@ def extract_provider_dispatch_edges(
                                 f"{provider_name}.{operation}"
                                 f" -> "
                                 f"{concrete_func}"
+                                f"{file_path}"
                             )
                         
                         # STEP 5: Create the raw semantic dispatch edge data
@@ -138,6 +139,7 @@ def extract_provider_dispatch_edges(
                             (
                                 provider_kind,  # provider kind (e.g., file_operations)
                                 provider_name,
+                                file_path,
                                 operation,
                                 concrete_func
                             )
@@ -149,6 +151,7 @@ def extract_provider_dispatch_edges(
                                 f"{provider_name}.{operation}"
                                 f" -> "
                                 f"{concrete_func}"
+                                f"{file_path}"
                             )
 
     return extracted_edges

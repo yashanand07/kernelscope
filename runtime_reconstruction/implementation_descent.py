@@ -171,12 +171,12 @@ def reconstruct_implementation_path(
             if symbol
             else current_symbol_id
         )
-        if app_config.runtime.debug_traversal:
-            print(
-                f"\n[DEBUG] CURRENT SYMBOL: "
-                f"{symbol_name}"
-                f" ({current_symbol_id[:8]})"
-            )
+        # if app_config.runtime.debug_traversal:
+        #     print(
+        #         f"\n[DEBUG] CURRENT SYMBOL: "
+        #         f"{symbol_name}"
+        #         f" ({current_symbol_id[:8]})"
+        #     )
 
         for edge in traversable_edges:
 
@@ -241,12 +241,12 @@ def reconstruct_implementation_path(
                 else edge.dst_symbol_id
             )
 
-            if app_config.runtime.debug_traversal:
-                print(
-                    f"[DEBUG] Found SYNTHETIC_CONTINUATION:"
-                    f" {edge.edge_type.name}"
-                    f" -> {dst_name}"
-                )
+            # if app_config.runtime.debug_traversal:
+            #     print(
+            #         f"[DEBUG] Found SYNTHETIC_CONTINUATION:"
+            #         f" {edge.edge_type.name}"
+            #         f" -> {dst_name}"
+            #     )
 
         if synth_edges:
             # Sort by confidence to ensure we pick the strongest path

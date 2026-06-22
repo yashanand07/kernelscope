@@ -1,10 +1,12 @@
 import hashlib
+import os
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Set, Optional, Any
 from .ontology import SemanticEdgeType
 from utils.subsystem_derivation import derive_subsystem
 from .symbol_type import SymbolKind
 from config.config import app_config
+from pathlib import Path
 
 # --------------------------------------------------------
 # Exceptions & Core Identity Layer
@@ -54,6 +56,7 @@ class SymbolIdentity:
         return str(self.key)  # Yields: "fs/open.c::do_sys_open"
 
 
+
 # --------------------------------------------------------
 # Semantic Edge Layer
 # --------------------------------------------------------
@@ -72,6 +75,12 @@ class SemanticEdge:
 # --------------------------------------------------------
 # Central Semantic Graph
 # --------------------------------------------------------
+@dataclass(frozen=True)
+class MacroAlias:
+    alias: str
+    target: str
+    file_path: str
+
 
 class SemanticGraph:
 
@@ -99,6 +108,366 @@ class SemanticGraph:
         # ----------------------------------------------------
         self.legacy_name_lookups: Dict[str, Dict[str, Any]] = {}
 
+        # NEW: Maps alias name to a list of candidate MacroAlias objects
+        self.macro_aliases_by_name: Dict[str, List[MacroAlias]] = {}
+        self.macro_alias_count = 0
+
+    # ---------------------------------------------------------
+    # Macro Alias Layer
+    # ---------------------------------------------------------
+    def register_macro_alias(
+        self,
+        alias: str,
+        target: str,
+        file_path: str
+    ):
+        """
+        Registers a macro alias.
+
+        Example:
+            rd32 -> igb_rd32
+            rd32 -> igc_rd32
+
+        Filters out:
+            - unresolved targets
+            - MMIO primitives
+            - constants
+            - non-callable aliases
+        """
+
+        # ---------------------------------------------------------
+        # Target must exist as a registered symbol
+        # ---------------------------------------------------------
+
+        if target not in self.symbol_db_by_name:
+            # This is for the case. This is a limitation of the symbol ingestion pipeline yashtbd
+            #[MACRO EXTRACT] Saw 'wr32 -> fbnic_wr32' in drivers/net/ethernet/meta/fbnic/fbnic.h
+            #[!] DROPPED: Target 'fbnic_wr32' is not in the symbol database!
+            if (
+                app_config.runtime.debug_traversal
+                and alias in {"rd32", "wr32"}
+                and target not in self.symbol_db_by_name
+            ):
+                print(
+                    f"[MACRO DROP] "
+                    f"{alias} -> {target}"
+                )
+            return
+
+
+
+        # ---------------------------------------------------------
+        # Skip MMIO primitives
+        # ---------------------------------------------------------
+        if target in {
+            "readl",
+            "writel",
+            "readw",
+            "writew",
+            "readb",
+            "writeb",
+        }:
+            return
+
+        macro = MacroAlias(
+            alias=alias,
+            target=target,
+            file_path=file_path
+        )
+
+        self.macro_aliases_by_name.setdefault(
+            alias,
+            []
+        ).append(macro)
+
+        self.macro_alias_count += 1
+
+    def resolve_macro_alias(self, current_file: str, callee: str) -> str:
+        """
+        Ambiguity Resolution for Macros:
+        Finds the correct macro target based on proximity to the caller.
+        """
+        candidates = self.macro_aliases_by_name.get(callee)
+
+
+        if not candidates:
+            return callee  # Not a macro, return original string
+
+        if len(candidates) == 1:
+            return candidates[0].target
+
+        # We have multiple definitions for this macro (e.g., rd32). Rank them!
+        def score_macro(macro: MacroAlias) -> int:
+            score = 0
+            
+            # Exact file match
+            if current_file == macro.file_path:
+                score += 100
+                
+            # Directory depth proximity (Using your exact locality_rank function)
+            score += 10 * self.locality_rank(current_file, macro.file_path)
+            caller_dir = Path(current_file).parent
+
+            alias_dir = Path(macro.file_path).parent
+
+            if caller_dir == alias_dir:
+                score += 100
+            # if macro.alias in {"rd32", "wr32"}:
+                # print(
+                #     f"[LOCALITY]"
+                #     f" caller={current_file}"
+                #     f" alias={macro.file_path}"
+                #     f" rank={self.locality_rank(current_file, macro.file_path)}"
+                # )
+            return score
+
+        # Sort highest score first
+        ranked_candidates = sorted(candidates, key=score_macro, reverse=True)
+        # if callee in {"rd32", "wr32"}:
+        #     print(
+        #         f"\n[ALIAS LOOKUP] "
+        #         f"{current_file} :: {callee}"
+        #         f"{len(candidates)}"
+        #     )
+        #     for alias in ranked_candidates:
+        #         score = score_macro(alias)
+
+        #         print(
+        #             f"    score={score:3d} "
+        #             f"{alias.file_path}"
+        #             f" -> {alias.target}"
+        #         )
+        best_match = ranked_candidates[0]
+        
+        # Optional safeguard: If it's a complete tie and score is 0, 
+        # we still return the top one, but it represents a "best guess" cross-subsystem.
+        # if callee in {"rd32", "wr32"}:
+        #     print(
+        #         f"[ALIAS RESULT] "
+        #         f"{best_match.target}"
+        #     )
+        return best_match.target
+
+    # Update stats to include telemetry
+    def semantic_ir_stats(self):
+        return {
+            "symbols": len(self.symbol_db_by_key),
+            "edges": self.number_of_edges(),
+            "dispatch_edges": self.dispatch_edges(),
+            "synthetic_edges": self.synthetic_edges(),
+            "macro_aliases": self.macro_alias_count  # <-- New metric
+        }
+
+    def resolve_best_symbol(
+        self,
+        symbol_name: str,
+        reference_file: Optional[str] = None
+) -> Optional['SymbolIdentity']:
+        """
+        Ambiguity Resolution v2
+
+        Resolves a symbol name using file locality when multiple
+        candidates exist. Refuses to guess when no contextual
+        signal is available.
+        """
+
+        # WATCH_SYMBOLS = {
+        #     "probe",
+        #     "remove",
+        #     "open",
+        #     "close",
+        #     "reset",
+        #     "init",
+        #     "shutdown",
+        #     "suspend",
+        #     "resume",
+        #     "rd32",
+        #     "wr32"
+        # }
+
+        matches = self.resolve_symbols_by_name(
+            symbol_name
+        )
+
+        # ---------------------------------------------------------
+        # No matches
+        # ---------------------------------------------------------
+        if not matches:
+            return None
+
+        # ---------------------------------------------------------
+        # Fast path: unique match
+        # ---------------------------------------------------------
+        if len(matches) == 1:
+            return matches[0]
+
+
+
+        def calculate_match_score(
+            candidate: 'SymbolIdentity'
+        ) -> int:
+
+            score = 0
+
+            # Exact file ownership match
+            if (
+                reference_file and
+                candidate.file_path == reference_file
+            ):
+                score += 100
+
+            # File tree locality
+            if reference_file:
+                score += (
+                    10 *
+                    self.locality_rank(
+                        reference_file,
+                        candidate.file_path
+                    )
+                )
+
+            return score
+
+        ranked_matches = sorted(
+            matches,
+            key=calculate_match_score,
+            reverse=True
+        )
+
+        # ---------------------------------------------------------
+        # Debug instrumentation
+        # ---------------------------------------------------------
+        # if symbol_name in WATCH_SYMBOLS:
+
+        #     print(
+        #         f"\n[AMBIGUITY TEST] "
+        #         f"{symbol_name}"
+        #     )
+
+        #     print(
+        #         f"reference_file="
+        #         f"{reference_file}"
+        #     )
+
+        #     print("[RANKED CANDIDATES]")
+
+        #     for candidate in ranked_matches:
+        #         print(
+        #             f"    score="
+        #             f"{calculate_match_score(candidate):3d} "
+        #             f"{candidate.file_path}"
+        #         )
+
+        top_match = ranked_matches[0]
+        top_score = calculate_match_score(
+            top_match
+        )
+
+        # ---------------------------------------------------------
+        # Safeguard #1
+        # No contextual signal
+        # ---------------------------------------------------------
+        if top_score <= 0:
+            # print(
+            #     f"[DROP ZERO SCORE] "
+            #     f"{symbol_name}"
+            # )
+            # if symbol_name in WATCH_SYMBOLS:
+            #     print(
+            #         "[REJECTED] "
+            #         "No contextual signal"
+            #     )
+
+            return None
+
+        # ---------------------------------------------------------
+        # Safeguard #2
+        # Ambiguous tie
+        # ---------------------------------------------------------
+        if len(ranked_matches) > 1:
+            # ---------------------------------------------------------
+            # Ambiguous symbol
+            # ---------------------------------------------------------
+            # if symbol_name in WATCH_SYMBOLS:
+                # print(
+                #     f"[AMBIGUOUS] {symbol_name} "
+                #     f"({len(matches)} matches)"
+                # )
+            second_score = calculate_match_score(
+                ranked_matches[1]
+            )
+
+            if top_score == second_score:
+                # print(
+                #     f"[DROP TIE] "
+                #     f"{symbol_name}"
+                # )
+                # if symbol_name in WATCH_SYMBOLS:
+                #     print(
+                #         "[REJECTED] "
+                #         "Tie between candidates"
+                #     )
+
+                return None
+
+        # ---------------------------------------------------------
+        # Winner
+        # ---------------------------------------------------------
+        # if symbol_name in WATCH_SYMBOLS:
+            # print(
+            #     f"[SELECTED] "
+            #     f"{top_match.file_path}"
+            # )
+
+        return top_match
+
+    @staticmethod
+    def locality_rank(
+        reference_file: str,
+        candidate_file: str
+    ) -> int:
+
+        if not reference_file:
+            return 0
+
+        if reference_file == candidate_file:
+            return 5
+
+        ref_parts = os.path.dirname(
+            reference_file
+        ).split(os.sep)
+
+        cand_parts = os.path.dirname(
+            candidate_file
+        ).split(os.sep)
+
+        common_depth = 0
+
+        for ref_part, cand_part in zip(
+            ref_parts,
+            cand_parts
+        ):
+            if ref_part != cand_part:
+                break
+
+            common_depth += 1
+
+        if common_depth >= 4:
+            return 4
+
+        if common_depth >= 3:
+            return 3
+
+        if common_depth >= 2:
+            return 2
+
+        if common_depth >= 1:
+            return 1
+
+        if candidate_file.startswith("tools/"):
+            return -5
+
+        return 0
     # --------------------------------------------------------
     # Edge ID Generation (Only Edges use Hashlib now)
     # --------------------------------------------------------

@@ -201,6 +201,9 @@ ops_assign_pattern = re.compile(
     re.MULTILINE
 )
 
+# NEW: Macro Alias Extraction
+MACRO_ALIAS_PATTERN = re.compile(r'^#define\s+(\w+)\([^)]*\)\s*\(?\s*(\w+)\(', re.MULTILINE)
+
 def get_kernel_commit():
     try:
         commit = subprocess.check_output(
@@ -325,6 +328,113 @@ def semantic_ir_cache_valid(profile):
         print(f"[semantic cache validation failed] {e}")
         return False
 
+from collections import Counter
+
+from collections import Counter
+import os
+
+def analyze_macro_aliases(semantic_graph, symbol_freq, output_file="macro_telemetry_report.txt"):
+    """
+    One-time telemetry pass. Writes the massive shape of the extracted 
+    macro aliases to a text file to keep the interactive CLI clean.
+    """
+    print(f"Writing Macro Telemetry Report to {output_file}...")
+
+    total_aliases = 0
+    unique_aliases = len(semantic_graph.macro_aliases_by_name)
+    
+    known_targets = set()
+    callable_targets = set()
+    
+    subsystem_counts = {
+        "kernel/": Counter(),
+        "drivers/": Counter(),
+        "tools/": Counter(),
+        "include/": Counter(),
+        "arch/": Counter(),
+        "fs/": Counter()
+    }
+    
+    global_freq = Counter()
+
+    for alias, macros in semantic_graph.macro_aliases_by_name.items():
+        total_aliases += len(macros)
+        
+        for m in macros:
+            pair = f"{alias} -> {m.target}"
+            global_freq[pair] += 1
+            
+            for sub in subsystem_counts.keys():
+                if m.file_path.startswith(sub):
+                    subsystem_counts[sub][pair] += 1
+                    break
+                    
+            if m.target in semantic_graph.symbol_db_by_name:
+                known_targets.add(m.target)
+                if m.target in symbol_freq:
+                    callable_targets.add(m.target)
+
+    # --- Write Stats to File ---
+    with open(output_file, "w", encoding="utf-8") as f:
+        def out(text=""):
+            f.write(text + "\n")
+
+        out("="*50)
+        out(" MACRO ALIAS TELEMETRY REPORT")
+        out("="*50)
+        out(f"Total raw aliases extracted:          {total_aliases}")
+        out(f"Unique alias names:                   {unique_aliases}")
+        out(f"Targets resolving to known symbols:   {len(known_targets)}")
+        out(f"Targets resolving to callable symbols: {len(callable_targets)}")
+        out("-" * 50)
+
+        out("\nTop 50 Global Aliases (by redefinition count):")
+        for pair, count in global_freq.most_common(50):
+            out(f"  {pair} (defined {count} times)")
+            
+        for sub, counter in subsystem_counts.items():
+            if counter:
+                out(f"\nTop 100 Aliases inside {sub}:")
+                for pair, count in counter.most_common(100):
+                    out(f"  {pair} ({count} times)")
+                    
+        out("\n" + "="*50 + "\n")
+        
+        out("ALL EXTRACTED ALIASES:")
+        for pair, count in global_freq.most_common():
+            out(f"  {pair} ({count} times)")
+
+    print(f"Done! Open '{output_file}' to view the results.")
+
+def build_macro_alias_index(semantic_graph, linux_root):
+    """
+    Pass 1.5: Scans drivers and includes to recover ownership-preserving 
+    macro aliases before direct call edge registration.
+    """
+    target_dirs = ["drivers", "include"]
+    
+    for target in target_dirs:
+        search_path = os.path.join(linux_root, target)
+        if not os.path.exists(search_path):
+            continue
+
+        for root, _, files in os.walk(search_path):
+            for file in files:
+                if file.endswith('.h') or file.endswith('.c'):
+                    full_path = os.path.join(root, file)
+                    try:
+                        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                            for match in MACRO_ALIAS_PATTERN.finditer(content):
+                                alias, target_fn = match.groups()
+                                rel_path = os.path.relpath(full_path, linux_root)
+                                
+                                semantic_graph.register_macro_alias(alias, target_fn, rel_path)
+                    except Exception:
+                        pass
+                        
+    print(f"Macro aliases extracted: {semantic_graph.macro_alias_count}")
+
 # =================================================================
 # Semantic Graph Compilation - 2 Pass Approach
 # =================================================================
@@ -388,6 +498,12 @@ def compile_semantic_ir(profile):
         symbol_index,
         symbol_name_index
     )
+    # ---------------------------------------------------------
+    # NEW: Phase 1.5 - Extract Macro Aliases
+    # ---------------------------------------------------------
+    print("Building Macro Alias Index...")
+    build_macro_alias_index(semantic_graph, LINUX_ROOT)
+
     if app_config.runtime.debug_traversal:
         missing_symbols = Counter()
         ambiguous_symbols = Counter()
@@ -405,9 +521,10 @@ def compile_semantic_ir(profile):
                 file_path,
                 symbol
             )
-            current_src_symbol_id = current_src_symbol.symbol_id
             if not current_src_symbol:
                 continue
+            current_src_symbol_id = current_src_symbol.symbol_id
+
             code = data["code"]
             symbol_code_index[symbol] = code
 
@@ -426,12 +543,34 @@ def compile_semantic_ir(profile):
             #yashcache
             call_graph.setdefault(symbol, set()).update(calls)
 
-            for callee in calls:
+            for raw_callee in calls:
+
+                # -----------------------------------------------------
+                # NEW: Macro Alias Resolution Hook
+                # -----------------------------------------------------
+                callee = semantic_graph.resolve_macro_alias(file_path, raw_callee)
+
+                # if callee != raw_callee and app_config.runtime.debug_traversal:
+                #     print(f"[ALIAS_APPLIED] {file_path} :: {raw_callee} -> {callee}")
+
+                # print(
+                #     f"[SYMLOOKUP] {callee} -> "
+                #     f"{symbol_index.lookup(callee)}"
+                # )
 
                 matches = symbol_name_index.get(
                     callee.lower(),
                     set()
                 )
+                # if callee in {"igb_rd32", "igc_rd32", "fbnic_rd32"}:
+                #     print(
+                #         f"\n[DIRECT CALL RESOLUTION] {callee}"
+                #     )
+                #     print(
+                #         f"matches={len(matches)}"
+                #     )
+                #     for m in matches:
+                #         print(f"    {m}")
                 if len(matches) == 0:
                     if app_config.runtime.debug_traversal:
                         missing_symbols[callee] += 1
@@ -443,8 +582,40 @@ def compile_semantic_ir(profile):
 
                 if app_config.runtime.debug_traversal:
                     resolved += 1
-                callee_file = next(iter(matches))
 
+                # Instrumentation Starts
+                WATCH_SYMBOLS = {
+                    "rd32",
+                    "wr32",
+                    "probe",
+                    "remove",
+                    "reset",
+                }
+
+                # if callee in WATCH_SYMBOLS:
+                #     print(
+                #         f"\n[RAW SYMBOL LOOKUP] "
+                #         f"{file_path} :: {callee}"
+                #     )
+
+                #     print(
+                #         f"matches={len(matches)}"
+                #     )
+
+                #     for m in sorted(matches):
+                #         print(f"    {m}")
+                # Instrumentation Ends
+                callee_file = next(iter(matches))
+                # if callee in {
+                #     "igb_rd32",
+                #     "igb_wr32",
+                #     "igc_rd32",
+                #     "igc_wr32",
+                # }:
+                #     print(
+                #         f"[CALLEE FILE] "
+                #         f"{callee} -> {callee_file}"
+                #     )
                 dst_symbol = semantic_graph.resolve_symbol_by_key(
                     callee_file,
                     callee
@@ -564,6 +735,9 @@ def compile_semantic_ir(profile):
             is_deterministic=True
         )
 
+    # Run the one-time telemetry
+    print("Analyzing Macro Alias Index...")
+    analyze_macro_aliases(semantic_graph, symbol_freq)
 
     bundle = SemanticIRBundle(
         semantic_graph=semantic_graph,
@@ -786,8 +960,23 @@ def run_semantic_workflow(
         traversal_mode ==
         TraversalMode.GENERIC_ENTRYPOINT
     ):
-        runtime_graph = (
-            reconstruct_generic_entrypoint(
+        # runtime_graph = (
+        #     reconstruct_generic_entrypoint(
+        #         runtime_engine=runtime_engine,
+        #         profile=profile,
+        #         start_symbol_id=start_symbol_id,
+        #         cpu=0,
+        #         max_depth=MAX_DEPTH
+        #     )
+        # )
+        print("But I called reconstruct_full_branch_path for generic construction...\n")
+        explorer = FullBranchExplorer(
+            semantic_graph=runtime_engine.semantic_graph,
+            max_depth=MAX_DEPTH
+        )
+
+        runtime_graph, stats = (
+            explorer.reconstruct_full_branch_path(
                 runtime_engine=runtime_engine,
                 profile=profile,
                 start_symbol_id=start_symbol_id,
@@ -795,6 +984,8 @@ def run_semantic_workflow(
                 max_depth=MAX_DEPTH
             )
         )
+        if app_config.runtime.debug_traversal:
+            print(stats)
 
     else:
         raise RuntimeError(

@@ -14,6 +14,11 @@ from semantic_runtime.runtime_graph import (
     ExecutionNode,
     ExecutionEdge
 )
+from semantic_runtime.semantic_graph import (
+    SemanticGraph,
+    SymbolIdentity,
+    SemanticEdge
+)
 class FullBranchExplorer:
     """
     Explores all semantically significant branches within a bounded execution horizon.
@@ -81,29 +86,6 @@ class FullBranchExplorer:
         self.max_branches = max_branches_per_node
         self.max_total_nodes = max_total_nodes
         self.root_file = None
-
-    def locality_rank(self, dst_file):
-
-        if dst_file == self.root_file:
-            return 5
-
-        root_dir = os.path.dirname(self.root_file)
-        dst_dir = os.path.dirname(dst_file)
-
-        if root_dir == dst_dir:
-            return 3
-
-        if (
-            self.root_file.startswith("kernel/sched")
-            and
-            dst_file.startswith("kernel/sched")
-        ):
-            return 2
-
-        if dst_file.startswith("tools/"):
-            return -5
-
-        return 0
 
     def reconstruct_full_branch_path(
         self,
@@ -220,12 +202,13 @@ class FullBranchExplorer:
                 revisit_penalty = revisits * 25
 
                 graph_rank = edge.confidence        # confidence
-                profile_rank = boost                # scheduler hints
+                profile_rank = boost                # hints
                 semantic_rank = edge_priority       # dispatch > direct
 
                 # same directory Later implementation yashtbd
                 if dst_symbol:
-                    locality_rank = self.locality_rank(
+                    locality_rank = self.semantic_graph.locality_rank(
+                        self.root_file,
                         dst_symbol.file_path
                     )
 
