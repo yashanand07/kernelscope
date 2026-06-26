@@ -3,6 +3,9 @@
 # -----------------------------
 # LEGACY - Will convert toMermaidGraphExporter which is the semantic graph exporter - yashtbd
 from datetime import datetime
+from semantic_runtime.ontology import (
+    SemanticEdgeType
+)
 import os
 
 class MermaidGraphExporter:
@@ -57,14 +60,19 @@ class MermaidGraphExporter:
                 dst_runtime_node.symbol_id
             )
 
-            # lines.append(
-            #     f'    "{src_symbol.name}" '
-            #     f'--> '
-            #     f'"{dst_symbol.name}\n"'
-            # )
+            semantic_edge = semantic_graph.semantic_edge_index.get(
+                edge.semantic_edge_id
+            )
+            if semantic_edge.edge_type == SemanticEdgeType.MACRO_ALIAS:
+                link_style = f"-. {semantic_edge.edge_type.name} .->"
+            elif semantic_edge.edge_type == SemanticEdgeType.FUNCTION_POINTER_DISPATCH:
+                link_style = f"== {semantic_edge.edge_type.name} ==>"
+            else:
+                link_style = f"-- {semantic_edge.edge_type.name} -->"
+
             content += (
                 f"    {src_symbol.name}"
-                f"--> "
+                f"{link_style}"
                 f"{dst_symbol.name}\n"
             )
         with open(output_file, "w") as f:

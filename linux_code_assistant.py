@@ -52,6 +52,10 @@ from semantic_runtime.runtime_graph import (
     ExecutionNode,
     ExecutionEdge
 )
+from semantic_runtime.constants import (
+    NON_EXECUTION_SYMBOLS
+)
+
 from profiles.profiles_registry import (
     determine_subsystem_profile
 )
@@ -548,6 +552,10 @@ def compile_semantic_ir(profile):
                 # -----------------------------------------------------
                 # NEW: Macro Alias Resolution Hook
                 # -----------------------------------------------------
+                # Instantly suppress non-executable noise
+                if raw_callee in NON_EXECUTION_SYMBOLS:
+                    continue
+
                 callee = semantic_graph.resolve_macro_alias(file_path, raw_callee)
 
                 # if callee != raw_callee and app_config.runtime.debug_traversal:
@@ -557,7 +565,9 @@ def compile_semantic_ir(profile):
                 #     f"[SYMLOOKUP] {callee} -> "
                 #     f"{symbol_index.lookup(callee)}"
                 # )
-
+                # Alias-resolved noise filter
+                if callee in NON_EXECUTION_SYMBOLS:
+                    continue
                 matches = symbol_name_index.get(
                     callee.lower(),
                     set()
@@ -635,12 +645,17 @@ def compile_semantic_ir(profile):
                     confidence += profile.high_value_transitions[
                         transition_key
                     ]
+
+                # NEW: Determine if this was a direct call or a macro expansion
+                edge_type = SemanticEdgeType.MACRO_ALIAS if callee != raw_callee else SemanticEdgeType.DIRECT_CALL
+                res_source = "macro_expansion" if callee != raw_callee else "regex_call_parse"
+
                 semantic_graph.register_semantic_edge(
                     src_symbol_id=current_src_symbol_id,
                     dst_symbol_id=dst_symbol.symbol_id,
-                    edge_type=SemanticEdgeType.DIRECT_CALL,
+                    edge_type=edge_type,
                     confidence=confidence,
-                    resolution_source="regex_call_parse"
+                    resolution_source=res_source
                 )
     if app_config.runtime.debug_traversal:
         print(f"Resolved:  {resolved}")

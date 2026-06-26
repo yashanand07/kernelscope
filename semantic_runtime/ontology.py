@@ -27,6 +27,7 @@ class SemanticEdgeType(Enum):
     LOCK_RELEASE = "LOCK_RELEASE" # raw_spin_unlock_irqrestore(&rq->lock, flags)
     WORKQUEUE_QUEUE = "WORKQUEUE_QUEUE" # queue_work(system_wq, &my_work)
     WORKQUEUE_EXECUTE = "WORKQUEUE_EXECUTE" # Worker thread execution -> my_work_func
+    MACRO_ALIAS = "MACRO_ALIAS"
     # Add more edge types as needed for richer semantics
 
     @property

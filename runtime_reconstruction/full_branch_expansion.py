@@ -28,13 +28,15 @@ class FullBranchExplorer:
     ALLOWED_EDGE_TYPES = {
         SemanticEdgeType.SYNTHETIC_CONTINUATION,
         SemanticEdgeType.FUNCTION_POINTER_DISPATCH,
-        SemanticEdgeType.DIRECT_CALL
+        SemanticEdgeType.DIRECT_CALL,
+        SemanticEdgeType.MACRO_ALIAS
     }
 
     EDGE_PRIORITIES = {
-        SemanticEdgeType.SYNTHETIC_CONTINUATION: 3,
-        SemanticEdgeType.FUNCTION_POINTER_DISPATCH: 2,
-        SemanticEdgeType.DIRECT_CALL: 1
+        SemanticEdgeType.SYNTHETIC_CONTINUATION: 4,
+        SemanticEdgeType.FUNCTION_POINTER_DISPATCH: 3,
+        SemanticEdgeType.DIRECT_CALL: 2,
+        SemanticEdgeType.MACRO_ALIAS: 1
     }
     TERMINAL_NOISE = {
         "printk",
