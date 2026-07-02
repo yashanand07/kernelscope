@@ -195,7 +195,7 @@ class KernelScopeRunner:
                 symbols = context.local_symbols.get(var_name)
                 if symbols:
                     for s in symbols:
-                        SymbolPrinter.print_detailed_symbol(var_name, s)
+                        SymbolPrinter.print_detailed_symbol(var_name, s, context)
                 else:
                     print(f"Variable '{var_name}' not found inside context scope.")
             elif choice == "5":

@@ -1,10 +1,10 @@
-from semantic_runtime.semantic_model import LocalSymbol
+from semantic_runtime.semantic_model import LocalSymbol, FunctionSemanticContext
 
 class SymbolPrinter:
-    """Formats detailed contextual metrics for localized function tokens."""
-
+    """Formats detailed contextual metrics and resolves true reverse-references for local tokens."""
+    
     @staticmethod
-    def print_detailed_symbol(name: str, sym: LocalSymbol, usages: list = None):
+    def print_detailed_symbol(name: str, sym: LocalSymbol, context: FunctionSemanticContext):
         print("\n" + "-" * 40)
         print(f"Dump Local Symbol: {name}")
         print("-" * 40)
@@ -19,14 +19,31 @@ class SymbolPrinter:
             print(f"    Pointer Level       : {sym.type_info.pointer_level}")
         print(f"Qualifiers")
         print(f"    {', '.join(sym.type_info.qualifiers) if sym.type_info.qualifiers else '-'}")
-
+        
+        # --- Dynamic Usage & Reference Computations ---
+        usages = []
+        references = []
+        
+        iteration_count = 0
+        for m in context.semantic_constructs:
+            if m.__class__.__name__ == "IterationMetadata":
+                iteration_count += 1
+                # Only attribute if this variable is the explicit cursor
+                if m.cursor_variable == name:
+                    usages.append(f"Cursor Variable\n        Iteration #{iteration_count}")
+                    references.append(f"IterationMetadata @ L{m.source_line}")
+        
         print(f"Semantic Usage")
         if usages:
             for usage in usages:
                 print(f"    {usage}")
         else:
-            print(f"    Cursor Variable")
-            print(f"        Iteration #1")
-            print(f"Referenced By")
-            print(f"    IterationMetadata @ L{sym.declaration_line + 2}")
+            print(f"    None")
+            
+        print(f"Referenced By")
+        if references:
+            for ref in references:
+                print(f"    {ref}")
+        else:
+            print(f"    None")
         print("-" * 40)
