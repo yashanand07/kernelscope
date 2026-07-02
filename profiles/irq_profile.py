@@ -25,7 +25,7 @@ IRQ_PROVIDER_PATTERNS = [
 IRQ_PROFILE = (
     SubsystemSemanticProfile(
         subsystem_name="kernel/irq",
-        
+
         entrypoints=["handle_irq_event", "__do_softirq", "irq_exit"],
 
         entrypoint_files=[
@@ -40,7 +40,7 @@ IRQ_PROFILE = (
             "rcu_irq_enter",
             "rcu_irq_exit",
         },
-        
+
         execution_spine_boost={
             "handle_irq_event": 10.0,
             "handle_irq_event_percpu": 10.0,
@@ -50,14 +50,14 @@ IRQ_PROFILE = (
             "irq_exit": 10.0,
             "irq_exit_rcu": 10.0,
         },
-        
+
         high_value_transitions={
             ("handle_irq_event", "handle_irq_event_percpu"): 20.0,
             ("handle_irq_event_percpu", "__handle_irq_event_percpu"): 20.0,
             ("irq_exit", "irq_exit_rcu"): 20.0,
             ("irq_exit_rcu", "__do_softirq"): 15.0, # Softirqs often trigger on hard IRQ exit
         },
-        
+
         synthetic_bridges={
             "__handle_irq_event_percpu": "irqaction:handler",
             "__do_softirq": "softirq_action:action",
@@ -65,7 +65,7 @@ IRQ_PROFILE = (
             "unmask_irq": "irq_chip:irq_unmask",
             "ack_irq": "irq_chip:irq_ack",
         },
-        
+
         associated_structs={
             "irq_desc",
             "irqaction",
@@ -73,16 +73,16 @@ IRQ_PROFILE = (
             "irq_data",
             "softirq_action",
         },
-        
+
         dispatch_provider_files=[
             "kernel/irq/handle.c",
             "kernel/irq/chip.c",
             "kernel/softirq.c",
             "kernel/irq/spurious.c"
         ],
-        
+
         provider_patterns=IRQ_PROVIDER_PATTERNS,
-        
+
         valid_dispatch_operations={
             "handler",
             "action",
@@ -91,7 +91,7 @@ IRQ_PROFILE = (
             "irq_ack",
             "irq_eoi",
         },
-        
+
         runtime_depth_limit=14,
         terminal_symbols={  #yashtbd
             # "note_interrupt",

@@ -150,7 +150,7 @@ class RuntimeExecutionEngine:
 
         return sha1(seed.encode()).hexdigest()
 
-   
+
 # ============================================================
 # Runtime Execution Layer - Ends
 # ============================================================
@@ -339,17 +339,17 @@ import os
 
 def analyze_macro_aliases(semantic_graph, symbol_freq, output_file="macro_telemetry_report.txt"):
     """
-    One-time telemetry pass. Writes the massive shape of the extracted 
+    One-time telemetry pass. Writes the massive shape of the extracted
     macro aliases to a text file to keep the interactive CLI clean.
     """
     print(f"Writing Macro Telemetry Report to {output_file}...")
 
     total_aliases = 0
     unique_aliases = len(semantic_graph.macro_aliases_by_name)
-    
+
     known_targets = set()
     callable_targets = set()
-    
+
     subsystem_counts = {
         "kernel/": Counter(),
         "drivers/": Counter(),
@@ -358,21 +358,21 @@ def analyze_macro_aliases(semantic_graph, symbol_freq, output_file="macro_teleme
         "arch/": Counter(),
         "fs/": Counter()
     }
-    
+
     global_freq = Counter()
 
     for alias, macros in semantic_graph.macro_aliases_by_name.items():
         total_aliases += len(macros)
-        
+
         for m in macros:
             pair = f"{alias} -> {m.target}"
             global_freq[pair] += 1
-            
+
             for sub in subsystem_counts.keys():
                 if m.file_path.startswith(sub):
                     subsystem_counts[sub][pair] += 1
                     break
-                    
+
             if m.target in semantic_graph.symbol_db_by_name:
                 known_targets.add(m.target)
                 if m.target in symbol_freq:
@@ -395,15 +395,15 @@ def analyze_macro_aliases(semantic_graph, symbol_freq, output_file="macro_teleme
         out("\nTop 50 Global Aliases (by redefinition count):")
         for pair, count in global_freq.most_common(50):
             out(f"  {pair} (defined {count} times)")
-            
+
         for sub, counter in subsystem_counts.items():
             if counter:
                 out(f"\nTop 100 Aliases inside {sub}:")
                 for pair, count in counter.most_common(100):
                     out(f"  {pair} ({count} times)")
-                    
+
         out("\n" + "="*50 + "\n")
-        
+
         out("ALL EXTRACTED ALIASES:")
         for pair, count in global_freq.most_common():
             out(f"  {pair} ({count} times)")
@@ -412,11 +412,11 @@ def analyze_macro_aliases(semantic_graph, symbol_freq, output_file="macro_teleme
 
 def build_macro_alias_index(semantic_graph, linux_root):
     """
-    Pass 1.5: Scans drivers and includes to recover ownership-preserving 
+    Pass 1.5: Scans drivers and includes to recover ownership-preserving
     macro aliases before direct call edge registration.
     """
     target_dirs = ["drivers", "include"]
-    
+
     for target in target_dirs:
         search_path = os.path.join(linux_root, target)
         if not os.path.exists(search_path):
@@ -432,11 +432,11 @@ def build_macro_alias_index(semantic_graph, linux_root):
                             for match in MACRO_ALIAS_PATTERN.finditer(content):
                                 alias, target_fn = match.groups()
                                 rel_path = os.path.relpath(full_path, linux_root)
-                                
+
                                 semantic_graph.register_macro_alias(alias, target_fn, rel_path)
                     except Exception:
                         pass
-                        
+
     print(f"Macro aliases extracted: {semantic_graph.macro_alias_count}")
 
 # =================================================================
@@ -849,7 +849,7 @@ def load_full_function(symbol):
 
                 if not match:
                     continue
-                
+
                 idx = content.rfind("\n", 0, match.start())
                 start = content.find("{", match.end())
                 if start == -1: continue
@@ -1713,8 +1713,8 @@ def main():
                         f"{edge.dst_node_id}"
                     )
         MermaidGraphExporter.export_runtime_graph(
-            runtime_graph, 
-            semantic_graph, 
+            runtime_graph,
+            semantic_graph,
             profile,
             output_dir=app_config.exports.mermaid_dir
         )

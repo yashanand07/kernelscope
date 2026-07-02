@@ -91,7 +91,7 @@ class SemanticGraph:
         # ----------------------------------------------------
         self.symbol_db_by_key: Dict[SymbolKey, SymbolIdentity] = {}
         self.symbol_db_by_id: Dict[str, SymbolIdentity] = {}
-        
+
         # Secondary Indexes (Using Sets to prevent duplicates)
         self.symbol_db_by_name: Dict[str, Set[SymbolKey]] = {}
         self.symbol_db_by_file: Dict[str, Set[SymbolKey]] = {}
@@ -199,11 +199,11 @@ class SemanticGraph:
         # We have multiple definitions for this macro (e.g., rd32). Rank them!
         def score_macro(macro: MacroAlias) -> int:
             score = 0
-            
+
             # Exact file match
             if current_file == macro.file_path:
                 score += 100
-                
+
             # Directory depth proximity (Using your exact locality_rank function)
             score += 10 * self.locality_rank(current_file, macro.file_path)
             caller_dir = Path(current_file).parent
@@ -238,8 +238,8 @@ class SemanticGraph:
         #             f" -> {alias.target}"
         #         )
         best_match = ranked_candidates[0]
-        
-        # Optional safeguard: If it's a complete tie and score is 0, 
+
+        # Optional safeguard: If it's a complete tie and score is 0,
         # we still return the top one, but it represents a "best guess" cross-subsystem.
         # if callee in {"rd32", "wr32"}:
         #     print(
@@ -504,7 +504,7 @@ class SemanticGraph:
             signature=None,
             subsystem=provider_kind
         )
-        
+
         self.symbol_db_by_key[key] = sym_identity
         self.symbol_db_by_id[sym_identity.symbol_id] = sym_identity
         self.symbol_db_by_name.setdefault(interface_name, set()).add(key)
@@ -595,17 +595,17 @@ class SemanticGraph:
         """
         if caller not in self.legacy_name_lookups:
             self.legacy_name_lookups[caller] = {"count": 0, "symbols": set()}
-            
+
         self.legacy_name_lookups[caller]["count"] += 1
         self.legacy_name_lookups[caller]["symbols"].add(name)
-        
+
         keys = self.symbol_db_by_name.get(name)
         if not keys:
             return None
-            
+
         if len(keys) == 1:
             return self.symbol_db_by_key[next(iter(keys))]
-            
+
         sorted_keys = sorted(keys, key=lambda x: x.file_path)
         raise AmbiguousSymbolError(
             f"Ambiguous lookup: '{name}' resolved to {len(keys)} distinct symbols. "
@@ -616,7 +616,7 @@ class SemanticGraph:
     def resolve_entrypoint_symbol(self, symbol_name: str, profile) -> Optional[str]:
         """Resolves an entrypoint name, preferring files defined in the profile."""
         files = getattr(profile, "entrypoint_files", [])
-        
+
         if files:
             for file_path in files:
                 key = SymbolKey(file_path, symbol_name)
@@ -716,7 +716,7 @@ class SemanticGraph:
 
     def dispatch_edges(self):
         count = sum(
-            1 for edges in self.semantic_edges_by_src.values() 
+            1 for edges in self.semantic_edges_by_src.values()
             for edge in edges if edge.edge_type == SemanticEdgeType.FUNCTION_POINTER_DISPATCH
         )
         if app_config.runtime.debug_traversal:
@@ -725,7 +725,7 @@ class SemanticGraph:
 
     def synthetic_edges(self):
         count = sum(
-            1 for edges in self.semantic_edges_by_src.values() 
+            1 for edges in self.semantic_edges_by_src.values()
             for edge in edges if edge.edge_type == SemanticEdgeType.SYNTHETIC_CONTINUATION
         )
         if app_config.runtime.debug_traversal:
@@ -747,7 +747,7 @@ class SemanticGraph:
     def export_json(self) -> dict:
         return {
             "symbols": {
-                # Because `@property` fields are ignored by dataclass.asdict, 
+                # Because `@property` fields are ignored by dataclass.asdict,
                 # we explicitly inject `symbol_id`, `name`, and `file_path`.
                 v.symbol_id: {
                     **asdict(v),
@@ -766,7 +766,7 @@ class SemanticGraph:
                 for k, v in self.semantic_edges_by_src.items()
             },
             "name_to_keys": {
-                k: [str(key) for key in v] 
+                k: [str(key) for key in v]
                 for k, v in self.symbol_db_by_name.items()
             }
         }
@@ -775,7 +775,7 @@ class SemanticGraph:
         outgoing = self.get_outgoing_edges(symbol_id)
         sym = self.lookup_symbol(symbol_id)
         sym_name = sym.name if sym else symbol_id
-        
+
         print(
             f"Outgoing edges for "
             f"{sym.file_path}::{sym.name} "

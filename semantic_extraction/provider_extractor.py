@@ -6,7 +6,7 @@ from config.config import app_config
 
 def _remove_c_comments(text: str) -> str:
     """
-    Strips C-style comments (/* ... */ and // ...) to prevent 
+    Strips C-style comments (/* ... */ and // ...) to prevent
     rogue braces inside comments from breaking the brace counter.
     """
     pattern = re.compile(r'//.*?$|/\*.*?\*/', re.DOTALL | re.MULTILINE)
@@ -27,7 +27,7 @@ def _extract_brace_block(text: str, start_index: int) -> str:
             in_block = True
         elif text[i] == '}':
             brace_depth -= 1
-        
+
         # When we've entered the block and depth returns to 0, we found the end.
         if in_block and brace_depth == 0:
             end_index = i + 1
@@ -42,13 +42,13 @@ def extract_provider_dispatch_edges(
     ) -> List[Tuple[str, str, str, str, str]]:
     """
     Extracts semantic function pointer dispatch edges from C source files.
-    
+
     Returns:
         List of tuples: [("provider_kind", "provider_name", "operation", "concrete_function"), ...]
         Example: [("read_iter", "ext4_file_read_iter"), ...]
     """
     extracted_edges = []
-    
+
     # STEP 3: The regex for designated initializers (e.g., .read_iter = ext4_file_read_iter)
     initializer_pattern = re.compile(r"\.(\w+)\s*=\s*([A-Za-z0-9_]+)")
 
@@ -59,7 +59,7 @@ def extract_provider_dispatch_edges(
 
     for rel_path in getattr(profile, 'dispatch_provider_files', []):
         file_path = Path(kernel_root) / rel_path
-        
+
         if not file_path.exists():
             continue
 
@@ -107,13 +107,13 @@ def extract_provider_dispatch_edges(
                             match
                         )
                     )
-            
+
             #for header_match in re.finditer(header_regex, clean_content):
             for provider_name, header_match in provider_blocks:
-                
+
                 # The match.end() - 1 points exactly to the '{' character
                 start_idx = header_match.end() - 1 
-                
+
                 # STEP 2: Balanced capture
                 block = _extract_brace_block(clean_content, start_idx)
 
@@ -132,7 +132,7 @@ def extract_provider_dispatch_edges(
                                 f"{concrete_func}"
                                 f"{file_path}"
                             )
-                        
+
                         # STEP 5: Create the raw semantic dispatch edge data
                         #extracted_edges.append((operation, concrete_func))
                         extracted_edges.append(
@@ -144,7 +144,7 @@ def extract_provider_dispatch_edges(
                                 concrete_func
                             )
                         )
-                        
+
                         if app_config.runtime.debug_traversal:
                             print(
                                 f"[DISPATCH] "

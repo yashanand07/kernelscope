@@ -4,8 +4,8 @@
 # for operation, concrete_func in raw_edges:
 #     # Now you link them into your graph!
 #     semantic_graph.add_edge(
-#         src=operation, 
-#         dst=concrete_func, 
+#         src=operation,
+#         dst=concrete_func,
 #         edge_type=SemanticEdgeType.FUNCTION_POINTER_DISPATCH
 #     )
 #from pathlib import Path
@@ -62,12 +62,12 @@ def build_dispatch_edges(
 # --- TEMPORARY DEBUG BLOCK START ---
         # 1. Fetch raw matches first to see what we are working with
         raw_matches = semantic_graph.resolve_symbols_by_name(concrete_func)
-        
+
         if raw_matches:
             # print(f"\n[DISPATCH DEBUG] Attempting to resolve '{concrete_func}'")
             # print(f"  Reference File (Provider context): {file_path}")
             # print(f"  Raw candidates found: {len(raw_matches)}")
-            
+
             # 2. Replicate the scoring logic visually
             for m in raw_matches:
                 score = 0
@@ -75,7 +75,7 @@ def build_dispatch_edges(
                     score += 100
                 if file_path:
                     score += 10 * semantic_graph.locality_rank(file_path, m.file_path)
-                
+
                 #print(f"    -> Candidate: {m.file_path} | Score: {score}")
 
             # 3. Call the actual method
@@ -83,7 +83,7 @@ def build_dispatch_edges(
                 concrete_func,
                 reference_file=file_path
             )
-            
+
             # if not dst_symbol:
             #     print("  [!] RESULT: resolve_best_symbol returned None. Edge dropped.")
             # else:
