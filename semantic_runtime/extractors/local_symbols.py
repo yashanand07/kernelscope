@@ -9,7 +9,7 @@ from semantic_runtime.ontology.metadata import (
     TypeKind,
 )
 from semantic_runtime.semantic_model import LocalSymbol
-#from semantic_runtime.compiler.semantic_ir import SemanticExtractor
+#   from semantic_runtime.compiler.semantic_ir import SemanticExtractor
 
 # 2. Guard high-level objects causing the loop.
 # They are only parsed by type-checkers, completely ignored by Python at runtime.
@@ -57,28 +57,32 @@ class LocalSymbolExtractor():
         )
 
     def _parse_type(self, raw_type: str, declarator: str) -> TypeDescriptor:
-        """Helper to convert C syntax into a rich TypeDescriptor."""
+        """Helper to convert C syntax into a rich TypeDescriptor without breaking names like 'device'."""
         qualifiers = []
         for qual in ['const', 'volatile', 'restrict']:
             if qual in raw_type:
                 qualifiers.append(qual)
 
         pointer_level = raw_type.count('*') + declarator.count('*')
-        clean_type = raw_type.replace('const', '').replace('volatile', '').replace('restrict', '').replace('*', '').strip()
+        # FIX: Safe substring cleaning using regex word boundaries to prevent matching 'device' -> 'ice'
+        clean_type = raw_type
+        clean_type = re.sub(r'\b(const|volatile|restrict)\b', '', clean_type)
+        clean_type = clean_type.replace('*', '')
 
+        # Determine Kind and extract pure type name using boundaries
         kind = TypeKind.BUILTIN
-        type_name = clean_type
+        type_name = clean_type.strip()
 
-        if clean_type.startswith('struct '):
+        if re.search(r'\bstruct\b', clean_type):
             kind = TypeKind.STRUCT
-            type_name = clean_type.replace('struct ', '').strip()
-        elif clean_type.startswith('enum '):
+            type_name = re.sub(r'\bstruct\b', '', clean_type).strip()
+        elif re.search(r'\benum\b', clean_type):
             kind = TypeKind.ENUM
-            type_name = clean_type.replace('enum ', '').strip()
-        elif clean_type.startswith('union '):
+            type_name = re.sub(r'\benum\b', '', clean_type).strip()
+        elif re.search(r'\bunion\b', clean_type):
             kind = TypeKind.UNION
-            type_name = clean_type.replace('union ', '').strip()
-        elif clean_type.endswith('_t') or clean_type not in {'int', 'char', 'void', 'long', 'short', 'float', 'double', 'unsigned', 'signed'}:
+            type_name = re.sub(r'\bunion\b', '', clean_type).strip()
+        elif clean_type.strip().endswith('_t') or clean_type.strip() not in {'int', 'char', 'void', 'long', 'short', 'float', 'double', 'unsigned', 'signed'}:
             kind = TypeKind.TYPEDEF
 
         return TypeDescriptor(
@@ -113,7 +117,8 @@ class LocalSymbolExtractor():
                 continue
 
             name = words[-1]
-            raw_type = param.replace(name, '').strip()
+            # Using a regex word-boundary substitution
+            raw_type = re.sub(r'\b' + re.escape(name) + r'\b', '', param).strip()
             type_info = self._parse_type(raw_type, "")
 
             symbol = LocalSymbol(

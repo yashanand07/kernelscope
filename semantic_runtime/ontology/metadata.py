@@ -98,55 +98,17 @@ class SemanticMetadata:
 
 @dataclass
 class IterationMetadata(SemanticMetadata):
-
-    #
-    # Original syntax
-    #
-
-    macro: str = ""
-    # list_for_each_entry
-
-    #
-    # Collection
-    #
-
-    collection_name: str = ""
-    # clkdm_list
-
-    collection_expression: str = ""
-    # &clkdm_list
-    # adapter->rx_ring_list
-
+    macro: str = ""                     # e.g., list_for_each_entry_safe (referenced_via)
+    collection_name: str = ""           # e.g., clkdm_list
+    collection_expression: str = ""    # e.g., &clkdm_list
     collection_symbol_id: Optional[str] = None
-
     collection_family: CollectionFamily = CollectionFamily.LINKED_LIST
-    # linked_list
-    # hash_table
-    # bitmap
-
     collection_type: Optional[str] = None
-    # struct list_head
-
-    #
-    # Elements
-    #
-
+    declared_by: str = "Unknown"        # NEW field: Phase 0 macro origin (e.g., LIST_HEAD)
     element_type: Optional[str] = None
-    # struct clockdomain
-
     cursor_variable: str = ""
-    # temp_clkdm
-
     member_field: Optional[str] = None
-    # node
-
-    #
-    # Traversal semantics
-    #
-
-    properties: TraversalProperties = field(
-        default_factory=TraversalProperties
-    )
+    properties: TraversalProperties = field(default_factory=TraversalProperties)
 
 
 # ---------------------------------------------------------

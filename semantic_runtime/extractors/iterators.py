@@ -119,11 +119,13 @@ class IteratorExtractor():
         coll_symbol_id = None
 
         # Enrich with Phase 0 data if available
+        declared_by = "Unknown"
         if collection_desc:
             coll_name = collection_desc.name
             coll_family = collection_desc.collection_family
             coll_type = collection_desc.type_name
             coll_symbol_id = collection_desc.symbol_id if collection_desc.symbol_id else None
+            declared_by = collection_desc.declaration_macro or "Unknown" # Map Phase 0 definition
 
         # Determine element type from the cursor (Phase 1 data)
         element_type = None
@@ -145,6 +147,7 @@ class IteratorExtractor():
             collection_symbol_id=coll_symbol_id,
             collection_family=coll_family,
             collection_type=coll_type,
+            declared_by=declared_by,             # Added
             element_type=element_type,
             cursor_variable=cursor_expr,
             member_field=member,
