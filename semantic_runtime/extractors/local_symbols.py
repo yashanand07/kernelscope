@@ -8,7 +8,8 @@ from semantic_runtime.ontology.metadata import (
     ExtractionReport,
     TypeKind,
 )
-from semantic_runtime.semantic_model import LocalSymbol, SemanticExtractor
+from semantic_runtime.semantic_model import LocalSymbol
+#from semantic_runtime.compiler.semantic_ir import SemanticExtractor
 
 # 2. Guard high-level objects causing the loop.
 # They are only parsed by type-checkers, completely ignored by Python at runtime.
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from semantic_runtime.semantic_model import FunctionSemanticContext
     from semantic_runtime.compiler.indices import CompilerIndices
 
-class LocalSymbolExtractor(SemanticExtractor):
+class LocalSymbolExtractor():
     """
     Phase 1 Pass: Sweeps the raw function code to populate the Local Symbol Table.
     Uses precise regex to identify parameters and locals, resolving their TypeDescriptors.

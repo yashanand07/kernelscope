@@ -1,13 +1,14 @@
 from typing import Optional
 from semantic_runtime.semantic_model import (
-    SemanticExtractor, FunctionSemanticContext,
+    FunctionSemanticContext,
     LocalSymbol, CollectionDescriptor
 )
 from semantic_runtime.compiler.indices import CompilerIndices
 from semantic_runtime.ontology.metadata import ExtractionReport, IterationMetadata, TraversalProperties
 from semantic_runtime.parser import c_patterns
+#from semantic_runtime.compiler.semantic_ir import SemanticExtractor
 
-class IteratorExtractor(SemanticExtractor):
+class IteratorExtractor():
     """
     Phase 1 Pass: Discovers control-flow loops (iterators) inside a function.
     Delegates to Phase 0 (CompilerIndices) to resolve global collection semantics,

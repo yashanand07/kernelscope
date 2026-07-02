@@ -38,6 +38,8 @@ class KernelScopeRunner:
     def run_pipeline(self, chunks_jsonl_path: str, symbol_db: dict):
         """Executes the complete Phase 0 and Phase 1 Compilation Pipeline."""
         print("\nKernelScope 2.0 Semantic Compiler")
+        print("Version -")
+        print("\t\tKernelScope 2.0 BootStrap")
         print("-----------------------------------------")
 
         global_start = time.perf_counter()
@@ -146,7 +148,7 @@ class KernelScopeRunner:
     def interactive_shell(self):
         """Clean command line debugger interface for verifying compiled IR."""
         while True:
-            print("\nKernelScope Debugger Shell")
+            print("\nKernelScope Semantic IR Inspector")
             print("1 - Explain Linux Scheduler (Disabled in IR-only mode)")
             print("2 - Dump Semantic Context")
             print("3 - Dump Collection Index")
