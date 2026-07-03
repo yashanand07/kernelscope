@@ -1,10 +1,11 @@
+from re import match
 from typing import Optional
 from semantic_runtime.semantic_model import (
     FunctionSemanticContext,
     LocalSymbol, CollectionDescriptor
 )
 from semantic_runtime.compiler.indices import CompilerIndices
-from semantic_runtime.ontology.metadata import ExtractionReport, IterationMetadata, TraversalProperties
+from semantic_runtime.ontology.metadata import ExtractionReport, IterationMetadata, TraversalProperties, SourceLocation
 from semantic_runtime.parser import c_patterns
 #from semantic_runtime.compiler.semantic_ir import SemanticExtractor
 
@@ -132,22 +133,24 @@ class IteratorExtractor():
         if cursor_symbol:
             element_type = cursor_symbol.type_info.type_name
 
-        # Calculate line number deterministically
-        line_num = source.count('\n', 0, match_offset) + 1
-
-        # Generate a deterministic ID for this specific action
-        action_id = f"{context.symbol_id}#action:L{line_num}"
+        # Calculate absolute line numbers using the unified context coordinates
+        relative_line = source.count('\n', 0, match_offset)
+        absolute_line = context.start_line + relative_line
+        
+        loc = SourceLocation(file=context.file_path, line=absolute_line)
+        action_id = f"{context.symbol_id}#iterator:{macro}:L{absolute_line}"
 
         return IterationMetadata(
             semantic_id=action_id,
-            source_line=line_num,
+            location=loc,                       # <-- Replaces source_line=line_num
+            source_text=match.group(0).strip(),  # Optional but great for tracing raw macros
             macro=macro,
             collection_name=coll_name,
             collection_expression=coll_expr,
             collection_symbol_id=coll_symbol_id,
             collection_family=coll_family,
             collection_type=coll_type,
-            declared_by=declared_by,             # Added
+            declared_by=declared_by,
             element_type=element_type,
             cursor_variable=cursor_expr,
             member_field=member,

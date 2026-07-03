@@ -84,7 +84,7 @@ class SemanticIRPrinter:
             if m.__class__.__name__ == "IterationMetadata":
                 print(f"\n[{idx}]\n")
                 print(f"Semantic Type     : {m.__class__.__name__}")
-                print(f"Source Line       : {m.source_line}")
+                print(f"Source Line       : {m.location.line}")
                 print("\nMacro")
                 print(f"    {m.macro}")
 
@@ -106,7 +106,27 @@ class SemanticIRPrinter:
                 print(f"    Reverse        : {'Yes' if m.properties.reverse else 'No'}")
                 print(f"    RCU            : {'Yes' if m.properties.rcu_protected else 'No'}")
                 print("")
-
+            elif m.__class__.__name__ == "CallMetadata":
+                print(f"\n[{idx}]\n")
+                print(f"Semantic Type     : {m.__class__.__name__}")
+                print(f"Source Line       : {m.location.line}")
+                
+                print("\nTarget")
+                print(f"    {m.target_function}()")
+                
+                print("\nArguments")
+                if not m.arguments:
+                    print("    None")
+                for arg_idx, arg in enumerate(m.arguments, 1):
+                    print(f"  Argument [{arg_idx}]")
+                    print(f"    Expression      : {arg.raw_expression}")
+                    print(f"    Resolved Symbol : {arg.resolved_symbol_name or '<unresolved>'}")
+                    
+                    kind_prefix = "struct " if arg.type_name and "struct" not in arg.type_name and arg.type_name not in ['int','char','void','long'] else ""
+                    type_str = f"{kind_prefix}{arg.type_name}{'*' * arg.pointer_level}" if arg.type_name else "Unknown Type"
+                    print(f"    Type            : {type_str}")
+                    print("")
+                    
         # 4. Statistics Block Summary
         print("=" * 80)
         print("Compiler Statistics")

@@ -31,7 +31,7 @@ class SymbolPrinter:
                 # Only attribute if this variable is the explicit cursor
                 if m.cursor_variable == name:
                     usages.append(f"Cursor Variable\n        Iteration #{iteration_count}")
-                    references.append(f"IterationMetadata @ L{m.source_line}")
+                    references.append(f"IterationMetadata @ L{m.location.line}")
         
         print(f"Semantic Usage")
         if usages:

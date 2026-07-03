@@ -120,6 +120,9 @@ class FunctionSemanticContext:
     symbol_id: str
 
     file_path: str
+    code: str
+    start_line: int
+    end_line: int
 
     #
     # Local namespace
@@ -137,6 +140,16 @@ class FunctionSemanticContext:
     semantic_constructs: List[SemanticMetadata] = field(
         default_factory=list
     )
+
+    def __init__(self, symbol_id: str, file_path: str, code: str, start_line: int = 1, end_line: int = 1):
+        self.symbol_id = symbol_id
+        self.file_path = file_path
+        self.code = code
+        self.start_line = start_line
+        self.end_line = end_line
+        # Ensure this attribute matches exactly what your runner and printers look for!
+        self.semantic_constructs: list = []  
+        self.local_symbols: dict = {}
 
     def add_local_symbol(self, symbol: LocalSymbol) -> None:
         """Appends a new declaration. Shadowed variables are pushed to the end."""
@@ -157,18 +170,15 @@ class FunctionSemanticContext:
         return self.local_symbols.get(name, [])
 
     def finalize(self):
-
-        #
-        # Keep semantic constructs ordered
-        #
-
+        """Prepares the semantic frame for downstream compilation stages."""
+        # Keep semantic constructs strictly ordered by absolute file coordinates
         self.semantic_constructs.sort(
             key=lambda m: (
-                m.source_line or 0,
+                m.location.line if (hasattr(m, 'location') and m.location) else 0,
                 m.semantic_id
             )
         )
-        # Later
+        
+        # Future-proofing placeholders
         # self.validate()
-        # self.sort()
         # self.freeze()

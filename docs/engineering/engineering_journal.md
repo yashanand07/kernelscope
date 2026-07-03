@@ -243,3 +243,20 @@ Although Linux is the initial target, the underlying architecture is expected to
 * Large embedded C/C++ codebases
 
 The objective is to reconstruct behaviour rather than merely index source code.
+
+
+
+2026-07-02 — KernelScope 2.0 Bootstrap Completed
+
+KernelScope 2.0 Compiler Freeze
+
+The semantic compiler infrastructure is considered stable.
+
+Future development should prioritize new semantic extractors and runtime reasoning capabilities rather than restructuring the compilation pipeline.
+
+Compiler changes should primarily support new semantic domains rather than redesign existing infrastructure.
+
+The first deterministic intra-function semantic compiler is now operational. The compiler constructs FunctionSemanticContext IR using a staged pipeline consisting of Phase 0 global index construction and Phase 1 semantic extraction. Initial semantic capabilities include local symbol analysis and collection iteration semantics. An interactive Semantic IR Inspector provides structured visualization of the compiled IR. Future work shifts from compiler infrastructure toward semantic enrichment through additional extractors (calls, locks, state mutations, RCU, workqueues, etc.).
+
+03/07/2026
+Universal Ctags occasionally emits macro-generated export symbols (e.g. ACPI_EXPORT_SYMBOL) as function definitions while omitting the underlying C function. KernelScope currently inherits this behavior because build_chunks.py uses ctags as the source of truth for function discovery. Future revisions should validate the extracted declaration against the tagged symbol before emitting a semantic chunk.
