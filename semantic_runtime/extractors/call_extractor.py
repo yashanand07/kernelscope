@@ -1,3 +1,4 @@
+from semantic_runtime.ontology.metadata import SemanticDomain
 import re
 from typing import List, Optional, TYPE_CHECKING
 from semantic_runtime.ontology.metadata import ExtractionReport, CallMetadata, CallArgument, SourceLocation
@@ -36,7 +37,7 @@ class CallExtractor():
     # Generic function call pattern: token(args)
     CALL_PATTERN = re.compile(r'\b([a-zA-Z_]\w*)\s*\(([^;]*)\)')
 
-    def extract(self, source: str, context: 'FunctionSemanticContext', indices: 'CompilerIndices') -> ExtractionReport:
+    def extract(self, source: str, context: 'FunctionSemanticContext', indices: 'CompilerIndices', kit=None) -> ExtractionReport:
         discovered = 0
         warnings = []
         
@@ -91,12 +92,14 @@ class CallExtractor():
                 absolute_line = context.start_line + body_offset_lines + relative_line
                 
                 loc = SourceLocation(file=context.file_path, line=absolute_line)
-                action_id = f"{context.symbol_id}#call:{target_name}:L{absolute_line}"
+                # The new URI Scheme for Calls
+                action_id = f"call:{context.file_path}:{absolute_line}:{target_name}"
                 
                 # ... argument parsing ...                        
                 metadata = CallMetadata(
                     semantic_id=action_id,
                     location=loc,
+                    domain=SemanticDomain.CALL,
                     source_text=match.group(0).strip(),
                     target_function=target_name,
                     arguments=resolved_args

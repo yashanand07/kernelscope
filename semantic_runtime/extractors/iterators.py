@@ -1,3 +1,5 @@
+import time
+from semantic_runtime.ontology.metadata import SemanticDomain
 from re import match
 from typing import Optional
 from semantic_runtime.semantic_model import (
@@ -20,9 +22,10 @@ class IteratorExtractor():
         self,
         source: str,
         context: FunctionSemanticContext,
-        indices: CompilerIndices
+        indices: CompilerIndices,
+        kit=None
     ) -> ExtractionReport:
-
+        start_time = time.perf_counter()
         discovered = 0
         warnings = []
 
@@ -60,11 +63,12 @@ class IteratorExtractor():
 
             except Exception as e:
                 warnings.append(f"Failed to parse iterator {macro_name}: {str(e)}")
-
+        duration = (time.perf_counter() - start_time) * 1000.0
         return ExtractionReport(
             extractor_name="IteratorExtractor",
             discovered=discovered,
-            warnings=warnings
+            warnings=warnings,
+            duration_ms=duration
         )
 
     def _resolve_collection(
@@ -138,11 +142,12 @@ class IteratorExtractor():
         absolute_line = context.start_line + relative_line
         
         loc = SourceLocation(file=context.file_path, line=absolute_line)
-        action_id = f"{context.symbol_id}#iterator:{macro}:L{absolute_line}"
+        action_id = f"iter:{context.file_path}:{absolute_line}:{macro}"
 
         return IterationMetadata(
             semantic_id=action_id,
             location=loc,                       # <-- Replaces source_line=line_num
+            domain=SemanticDomain.ITERATION,
             source_text=match.group(0).strip(),  # Optional but great for tracing raw macros
             macro=macro,
             collection_name=coll_name,

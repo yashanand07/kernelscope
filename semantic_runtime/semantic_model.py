@@ -1,3 +1,4 @@
+from semantic_runtime.ontology.metadata import SemanticRelationship
 from re import Pattern
 from dataclasses import dataclass, field
 from enum import Enum
@@ -140,6 +141,9 @@ class FunctionSemanticContext:
     semantic_constructs: List[SemanticMetadata] = field(
         default_factory=list
     )
+    relationships: list[SemanticRelationship] = field(
+        default_factory=list
+    )
 
     def __init__(self, symbol_id: str, file_path: str, code: str, start_line: int = 1, end_line: int = 1):
         self.symbol_id = symbol_id
@@ -150,6 +154,7 @@ class FunctionSemanticContext:
         # Ensure this attribute matches exactly what your runner and printers look for!
         self.semantic_constructs: list = []  
         self.local_symbols: dict = {}
+        self.relationships: list[SemanticRelationship] = []
 
     def add_local_symbol(self, symbol: LocalSymbol) -> None:
         """Appends a new declaration. Shadowed variables are pushed to the end."""

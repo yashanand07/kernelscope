@@ -1,7 +1,16 @@
+from semantic_runtime.ontology.metadata import SemanticDomain
+from semantic_runtime.ontology.metadata import AssignmentMetadata
 import time
 from typing import Dict, List, Any
-from semantic_runtime.semantic_model import FunctionSemanticContext, CollectionDescriptor
+from semantic_runtime.semantic_model import FunctionSemanticContext
 from semantic_runtime.compiler.indices import CompilerIndices
+from semantic_runtime.ontology.metadata import (
+    LockAcquireMetadata,
+    LockReleaseMetadata,
+    IterationMetadata,
+    CallMetadata,
+    InterruptStateMetadata
+)
 
 class SemanticIRPrinter:
     """Master formatting controller for KernelScope Function Semantic IR."""
@@ -30,29 +39,19 @@ class SemanticIRPrinter:
         print("Local Symbol Table")
         print("=" * 80)
 
-        # Segregate parameters vs locals
-        params = []
-        locals_list = []
-        for name, sym_list in context.local_symbols.items():
-            for sym in sym_list:
-                if sym.storage.value == "parameter":
-                    params.append(sym)
-                else:
-                    locals_list.append(sym)
+        params = [sym for sym_list in context.local_symbols.values() for sym in sym_list if sym.storage.value == "parameter"]
+        locals_list = [sym for sym_list in context.local_symbols.values() for sym in sym_list if sym.storage.value != "parameter"]
 
         print("\n[Parameter]\n")
         if not params:
             print("  - None -")
         for sym in params:
             print(f"{sym.name}")
-            # Change the Type printer inside your loops to this:
             kind_prefix = f"{sym.type_info.kind.value} " if sym.type_info.kind.value in ["struct", "union", "enum"] else ""
             pointer_suffix = f" {'*' * sym.type_info.pointer_level}" if sym.type_info.pointer_level > 0 else ""
             print(f"    Type              : {kind_prefix}{sym.type_info.type_name}{pointer_suffix}".strip())
             print(f"    Kind              : {sym.type_info.kind.value.capitalize()}")
-            print(f"    Qualifiers        : {', '.join(sym.type_info.qualifiers) if sym.type_info.qualifiers else '-'}")
             print(f"    Declaration Line  : {sym.declaration_line}")
-            print(f"    Scope             : Global Function Scope")
             print("")
 
         cls.print_horizontal_rule("-")
@@ -61,80 +60,94 @@ class SemanticIRPrinter:
             print("  - None -")
         for sym in locals_list:
             print(f"{sym.name}")
-            # Change the Type printer inside your loops to this:
             kind_prefix = f"{sym.type_info.kind.value} " if sym.type_info.kind.value in ["struct", "union", "enum"] else ""
             pointer_suffix = f" {'*' * sym.type_info.pointer_level}" if sym.type_info.pointer_level > 0 else ""
             print(f"    Type              : {kind_prefix}{sym.type_info.type_name}{pointer_suffix}".strip())
-            print(f"    Kind              : {sym.type_info.kind.value.capitalize()}")
-            if sym.type_info.pointer_level > 0:
-                print(f"    Pointer Level     : {sym.type_info.pointer_level}")
             print(f"    Declaration Line  : {sym.declaration_line}")
-            if sym.scope_depth > 1:
-                print(f"    Shadow Level      : {sym.scope_depth - 1}")
             print("")
 
-        # 3. Semantic Timeline
+        # 3. Semantic Timeline Output (Single, Clean Loop)
         print("=" * 80)
         print("Semantic Timeline")
         print("=" * 80)
 
         if not context.semantic_constructs:
-            print("\n  [No Semantic Constructs Encountered]")
-        for idx, m in enumerate(context.semantic_constructs, 1):
-            if m.__class__.__name__ == "IterationMetadata":
-                print(f"\n[{idx}]\n")
-                print(f"Semantic Type     : {m.__class__.__name__}")
-                print(f"Source Line       : {m.location.line}")
-                print("\nMacro")
-                print(f"    {m.macro}")
+            print("  - No Semantic Events Detected -")
+        else:
+            for idx, event in enumerate(context.semantic_constructs, start=1):
+                print(f"\n[{idx}]")
+                cls.print_timeline_event(event)
+                print("-" * 80)
 
-                print("\nCollection")
-                print(f"    Name           : {m.collection_name}")
-                print(f"    Family         : {m.collection_family.value if hasattr(m.collection_family, 'value') else m.collection_family}")
-                print(f"    Type           : struct {m.collection_type.replace('struct ', '') if m.collection_type else 'list_head'}")
-                print(f"    Declared By    : {m.declared_by}")      # FIX: Separation
-                print(f"    Referenced Via : {m.macro}")            # FIX: Separation
-                print(f"    Symbol         : {m.collection_symbol_id or '<unresolved_global_identity>'}")
+        counts = {domain.value: 0 for domain in SemanticDomain}
+        for obj in context.semantic_constructs:
+            counts[obj.domain.value] = counts.get(obj.domain.value, 0) + 1
 
-                print("\nCursor")
-                print(f"    Variable       : {m.cursor_variable}")
-                print(f"    Type           : {m.element_type or 'Unknown'} *")
+        print("================================================================================")
+        print("Semantic Graph Relationships (Phase 1.5 Substrate)")
+        print("================================================================================")
+        if not context.relationships:
+            print("    No explicit graph relationships established.")
+        else:
+            for idx, rel in enumerate(context.relationships, 1):
+                print(f"[{idx}]")
+                print(f"Relationship ID   : {rel.relationship_id}")
+                print(f"Relationship Type : {rel.relationship_type.value.upper()}")
+                print(f"Source Node       : {rel.source_semantic_id}")
+                print(f"Target Node       : {rel.target_semantic_id}\n")
+                print("-" * 40)
 
-                print("\nTraversal")
-                print(f"    Member         : {m.member_field or 'N/A'}")
-                print(f"    Deletion Safe  : {'Yes' if m.properties.deletion_safe else 'No'}")
-                print(f"    Reverse        : {'Yes' if m.properties.reverse else 'No'}")
-                print(f"    RCU            : {'Yes' if m.properties.rcu_protected else 'No'}")
-                print("")
-            elif m.__class__.__name__ == "CallMetadata":
-                print(f"\n[{idx}]\n")
-                print(f"Semantic Type     : {m.__class__.__name__}")
-                print(f"Source Line       : {m.location.line}")
-                
-                print("\nTarget")
-                print(f"    {m.target_function}()")
-                
-                print("\nArguments")
-                if not m.arguments:
-                    print("    None")
-                for arg_idx, arg in enumerate(m.arguments, 1):
-                    print(f"  Argument [{arg_idx}]")
-                    print(f"    Expression      : {arg.raw_expression}")
-                    print(f"    Resolved Symbol : {arg.resolved_symbol_name or '<unresolved>'}")
-                    
-                    kind_prefix = "struct " if arg.type_name and "struct" not in arg.type_name and arg.type_name not in ['int','char','void','long'] else ""
-                    type_str = f"{kind_prefix}{arg.type_name}{'*' * arg.pointer_level}" if arg.type_name else "Unknown Type"
-                    print(f"    Type            : {type_str}")
-                    print("")
-                    
         # 4. Statistics Block Summary
-        print("=" * 80)
+        print("\n" + "=" * 80)
         print("Compiler Statistics")
         print("=" * 80)
-        print(f"Semantic Objects          : {len(context.semantic_constructs)}")
-        print(f"Local Symbols             : {sum(len(v) for v in context.local_symbols.values())}")
-        # Direct lookup safely against discovered cache metrics
-        coll_refs = sum(1 for m in context.semantic_constructs if hasattr(m, 'collection_name') and m.collection_name)
-        print(f"Collection References     : {coll_refs}")
-        print(f"Warnings                  : 0")
+        print(f"Semantic Objects\n")
+        for domain_name, count in counts.items():
+            print(f"    {domain_name:<20} : {count}")
+        print("    ----------------------------------------")
+        print(f"    Total                : {len(context.semantic_constructs)}")
+        print(f"Local Symbols            : {len(context.local_symbols)}")
         cls.print_horizontal_rule("=")
+
+    @classmethod
+    def print_timeline_event(cls, event):
+        """Polymorphically matches and formats individual structural timeline nodes."""
+        # 1. Universal Header
+        print(f"Semantic ID      : {event.semantic_id}")
+        print(f"Semantic Domain  : {event.domain.value}")
+        print(f"Semantic Type    : {event.__class__.__name__}\n")
+
+        # 2. Universal Source Block
+        print("Source Location")
+        print(f"    File         : {event.location.file}")
+        print(f"    Line         : {event.location.line}\n")
+
+        # 3. Type-Specific Blocks ONLY (No redundant lines)
+        if isinstance(event, IterationMetadata):
+            print(f"Macro            : {event.macro}")
+            print(f"Collection Name  : {event.collection_name}")
+            # ... print other iteration properties here ...
+
+        elif isinstance(event, CallMetadata):
+            print(f"Target           : {event.target_function}()")
+
+        elif isinstance(event, LockAcquireMetadata):
+            print(f"Primitive               : {event.primitive}")
+            print(f"Synchronization Object  : {event.lock_expression}")
+            print(f"Resolved Symbol         : {event.resolved_symbol or '<unresolved>'}")
+            print(f"IRQ Save                : {'Yes' if event.irqsave else 'No'}")
+            print(f"Recursive               : {'Yes' if event.recursive else 'No'}")
+
+        elif isinstance(event, LockReleaseMetadata):
+            print(f"Primitive               : {event.primitive}")
+            print(f"Synchronization Object  : {event.lock_expression}")
+            print(f"Resolved Symbol         : {event.resolved_symbol or '<unresolved>'}")
+            print(f"IRQ Restor  e             : {'Yes' if event.irqrestore else 'No'}")
+
+        elif isinstance(event, InterruptStateMetadata):
+            print(f"Primitive               : {event.primitive}")
+            print(f"Action                  : {event.action.upper()}")
+        elif isinstance(event, AssignmentMetadata):
+            print(f"Target Expression       : {event.target_expression}")
+            print(f"Resolved Symbol         : {event.resolved_symbol or '<unresolved>'}")
+            print(f"Assignment Kind         : {event.assignment_kind.value.upper()}")

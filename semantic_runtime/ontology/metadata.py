@@ -32,6 +32,20 @@ class StorageClass(Enum):
     STATIC = "static"
     GLOBAL = "global"
 
+class SemanticDomain(Enum):
+    SYNCHRONIZATION = "Synchronization"
+    ASSIGNMENT = "Assignment"
+    STATE = "State"
+    DISPATCH = "Dispatch"
+    RCU = "RCU"
+    CALL = "Call"
+    ITERATION = "Iteration"
+    # Future expansion: WORKQUEUE, TIMER, IRQ, etc.
+
+class AssignmentKind(Enum):
+    LOCAL_VARIABLE = "Local Variable"
+    STRUCT_FIELD = "Struct Field"
+    ARRAY_ELEMENT = "Array Element"
 
 @dataclass
 class ExtractionReport:
@@ -103,6 +117,7 @@ class SemanticMetadata:
     semantic_id: str
     location: SourceLocation
     source_text: Optional[str] = None
+    domain: SemanticDomain
 
     @property
     def category(self) -> SemanticCategory:
@@ -131,6 +146,13 @@ class IterationMetadata(SemanticMetadata):
     def category(self) -> SemanticCategory:
         return SemanticCategory.CONTROL_FLOW
 
+@dataclass(slots=True)
+class AssignmentMetadata(SemanticMetadata):
+    """Ontology Node: Represents an explicit modification to data context state."""
+    target_expression: str          # The full LHS of the mutation (e.g., "rq->curr")
+    resolved_symbol: Optional[str]   # The extracted root local symbol (e.g., "rq")
+    assignment_kind: AssignmentKind  # ◄── Replaces 'mutation_type'
+    operator: str
 
 # ---------------------------------------------------------
 # Future Semantic Constructs
@@ -141,7 +163,7 @@ class IterationMetadata(SemanticMetadata):
 #     ...
 #
 #
-# class StateMutationMetadata(SemanticMetadata):
+# class AssignmentMetadata(SemanticMetadata):
 #     ...
 #
 #
@@ -184,4 +206,40 @@ class CallMetadata(SemanticMetadata):
     @property
     def category(self) -> SemanticCategory:
         return SemanticCategory.CALL
+
+@dataclass(slots=True)
+class LockAcquireMetadata(SemanticMetadata):
+    """Ontology Node: Represents a concurrency boundary entry point."""
+    primitive: str
+    lock_expression: str
+    resolved_symbol: Optional[str] = None  # Holds the identifier string if bound
+    irqsave: bool = False
+    recursive: bool = False
+
+@dataclass(slots=True)
+class LockReleaseMetadata(SemanticMetadata):
+    """Ontology Node: Represents a concurrency boundary exit point."""
+    primitive: str
+    lock_expression: str
+    resolved_symbol: Optional[str] = None
+    irqrestore: bool = False
+
+@dataclass(slots=True)
+class InterruptStateMetadata(SemanticMetadata):
+    """Ontology Node: Represents a hardware interrupt constraint boundary."""
+    primitive: str
+    action: str  # "disable" or "enable"
+
+
+class RelationshipType(Enum):
+    DESCRIBES = "describes"  # Maps a semantic node to a syntactic node on the same line
+    CONTAINS  = "contains"   # Maps a scope boundary to its internal operations
+    MODIFIES  = "modifies"   # Maps a state mutation to a tracked local/global symbol
+
+@dataclass(slots=True)
+class SemanticRelationship:
+    """Represents a directed structural edge between two unique Semantic URIs."""
+    relationship_type: RelationshipType
+    source_id: str  # The origin URI
+    target_id: str  # The destination URI
 

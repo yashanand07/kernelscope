@@ -1,3 +1,4 @@
+import time
 import re
 from typing import List, Tuple, TYPE_CHECKING
 
@@ -40,7 +41,8 @@ class LocalSymbolExtractor():
     )
 
     # Use string literals for the guarded types in the signature
-    def extract(self, source: str, context: 'FunctionSemanticContext', indices: 'CompilerIndices') -> ExtractionReport:
+    def extract(self, source: str, context: 'FunctionSemanticContext', indices: 'CompilerIndices', kit=None) -> ExtractionReport:
+        start_time = time.perf_counter()
         warnings = []
         discovered = 0
 
@@ -49,7 +51,7 @@ class LocalSymbolExtractor():
             discovered += self._extract_locals(source, context)
         except Exception as e:
             warnings.append(f"Exception during extraction: {str(e)}")
-
+        duration = (time.perf_counter() - start_time) * 1000.0
         return ExtractionReport(
             extractor_name="LocalSymbolExtractor",
             discovered=discovered,

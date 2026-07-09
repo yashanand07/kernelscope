@@ -53,10 +53,14 @@ class AppConfig:
     runtime: RuntimeConfig
     profiles: ProfilesConfig
 
+@dataclass(slots=True)
+class CompilerConfig:
+    fail_fast: bool = True  # Default to True for our local development runs
+
 def load_config(config_path=DEFAULT_CONFIG) -> AppConfig:
     """Loads the YAML file and maps it into the AppConfig dataclass."""
     config_path = Path(config_path)
-    print(f"config_path ({config_path})")
+    #print(f"config_path ({config_path})")
 
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
@@ -93,4 +97,4 @@ def load_config(config_path=DEFAULT_CONFIG) -> AppConfig:
 
 # Instantiate a global config object that any file can import
 app_config = load_config()
-print(f"app config - {app_config}/n")
+#print(f"app config - {app_config}/n")

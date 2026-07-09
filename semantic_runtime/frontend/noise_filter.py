@@ -1,5 +1,6 @@
 from semantic_runtime.frontend.tag import Tag
 
+#yashtbd - Use noise_prefixes from adaptation kit - adaptation/linux/kit.py
 class NoiseFilter:
     """Drops tags pointing to documentation, out-of-tree samples, or testing suites."""
     NOISE_PATH_PREFIXES = {

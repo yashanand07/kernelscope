@@ -1,3 +1,8 @@
+from config.config import app_config
+from semantic_runtime.passes.relationship_builder import RelationshipBuilder
+from semantic_runtime.extractors.assignment import AssignmentExtractor
+import traceback
+import sys
 import contextlib
 import time
 from typing import List
@@ -8,24 +13,37 @@ from semantic_runtime.semantic_model import FunctionSemanticContext
 from semantic_runtime.extractors.iterators import IteratorExtractor
 from semantic_runtime.extractors.local_symbols import LocalSymbolExtractor
 from semantic_runtime.ontology.metadata import ExtractionReport
+from semantic_runtime.extractors.synchronization import SynchronizationExtractor
+from semantic_runtime.frontend.adaptation import AdaptationKit
 
 class SemanticCompiler:
     """
     Phase 1: Compiles individual functions into semantic contexts.
     """
-    def __init__(self, indices: CompilerIndices):
+    def __init__(self, indices: CompilerIndices, kit: AdaptationKit):
         # The global knowledge base provided by Phase 0
         self.indices = indices
+        self.kit = kit
 
         # The sequential pipeline of semantic passes
         self.pipeline: List[SemanticExtractor] = [
             LocalSymbolExtractor(),      # Pass 1: Discover variables and types
             IteratorExtractor(),         # Pass 2: Discover control-flow loops
             CallExtractor(),             # Pass 3: Extract standard calls
-            # MacroAliasExtractor(),       # Pass 4: Resolve macros
-            # DispatchExtractor(),         # Pass 5: Resolve vtables
+            SynchronizationExtractor(),  # Pass 4: Resolve synchronization primitives
+            AssignmentExtractor(),       # Pass 5: Discover assignment semantics
+            # MacroAliasExtractor(),     # Pass 5: Resolve macros
+            # DispatchExtractor(),       # Pass 6: Resolve vtables
             # LockExtractor(),           # (Future Epic)
-            # StateMutationExtractor(),  # (Future Epic)
+        ]
+
+        # Phase 1.5: Post-extraction context synthesis and graph linking passes
+        self.post_pipeline = [
+            RelationshipBuilder()
+            # Future expansion hooks:
+            # StateInferencePass(),
+            # LifetimeInferencePass(),
+            # CriticalRegionSynthesizer()
         ]
 
     def compile_function(
@@ -49,10 +67,28 @@ class SemanticCompiler:
         
         # Run your stateless extraction passes over the code...
         for extractor in self.pipeline:
-            # Passes 1-3 run cleanly here
-            report = extractor.extract(code, context, self.indices)
-            # Cache report logic...
-            
+            try:
+                events = extractor.extract(code, context, self.indices, self.kit)
+            except Exception as e:
+                if app_config.runtime.fail_fast:
+                    print(f"\n[FATAL PIPELINE CRASH]")
+                    print(f"Extractor : {extractor.__class__.__name__}")
+                    print(f"Function  : {context.symbol_id}")
+                    print(f"Error     : {str(e)}")
+                    print("-" * 60)
+                    traceback.print_exc(file=sys.stdout) # ◄── Forces Python to print the exact stack trace
+                    print("-" * 60)
+                    sys.exit(1) # Halt immediately so you can fix it
+                else:
+                    # Log warning telemetry, skip extractor, keep compilation moving
+                    context.warnings.append(
+                        f"Extractor {extractor.__class__.__name__} failed on {context.symbol_id}: {str(e)}"
+                    )
+
+        # 2. Structural Graph Handshake Phase
+        for pass_ in self.post_pipeline:
+            pass_.run(context)
+
         return context
 
 class SemanticExtractor(ABC):
@@ -61,7 +97,8 @@ class SemanticExtractor(ABC):
         self,
         source: str,
         context: 'FunctionSemanticContext',
-        indices: 'CompilerIndices'
+        indices: 'CompilerIndices',
+        kit: 'AdaptationKit'
     ) -> ExtractionReport:
         """
         Analyzes function code, enriches the context, and returns telemetry.
@@ -91,7 +128,7 @@ class SemanticExtractor(ABC):
 #          │                                ├── LocalSymbol
 #          │                                ├── IterationMetadata
 #          │                                ├── LockMetadata
-#          │                                ├── StateMutationMetadata
+#          │                                ├── AssignmentMetadata
 #          │                                ├── ConfigBranchMetadata
 #          │                                └── ...
 #          │

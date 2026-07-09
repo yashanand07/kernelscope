@@ -1,3 +1,4 @@
+from adaptation.linux import kit
 from semantic_runtime.printer.report_printer import ReportPrinter
 from semantic_runtime.compiler.result import ExtractorTelemetry
 from semantic_runtime.compiler.result import CompilationResult
@@ -18,6 +19,10 @@ from semantic_runtime.printer.ir_printer import SemanticIRPrinter
 from semantic_runtime.printer.collection_printer import CollectionIndexPrinter
 from semantic_runtime.printer.symbol_printer import SymbolPrinter
 
+# Adaptation imports
+from adaptation.linux.kit import LinuxAdaptationKit
+from adaptation.linux.synchronisation import get_linux_sync_profile
+
 # Mocking a lightweight structure for Function/Chunk iteration if not already present
 @dataclass
 class MockFunction:
@@ -31,12 +36,13 @@ class KernelScopeRunner:
         self.verbosity = verbosity # Configurable Verbosity: 0, 1, 2, 3
         self.semantic_contexts: Dict[str, FunctionSemanticContext] = {}
         self.indices: Optional[CompilerIndices] = None
-
         self.total_compilation_time = 0.0
-        self.extractor_stats = {
-            "LocalSymbolExtractor": {"discovered": 0, "duration_ms": 0.0, "warnings": 0},
-            "IteratorExtractor": {"discovered": 0, "duration_ms": 0.0, "warnings": 0}
-        }
+        # self.extractor_stats = {
+        #     "LocalSymbolExtractor": {"discovered": 0, "duration_ms": 0.0, "warnings": 0},
+        #     "IteratorExtractor": {"discovered": 0, "duration_ms": 0.0, "warnings": 0},
+        #     "CallExtractor": {"discovered": 0, "duration_ms": 0.0, "warnings": 0},
+        #     "SynchronizationExtractor": {"discovered": 0, "duration_ms": 0.0, "warnings": 0}
+        # }
         os.makedirs(self.cache_dir, exist_ok=True)
 
     def log(self, level: int, message: str):
@@ -83,10 +89,10 @@ class KernelScopeRunner:
             discovered=result.collections_discovered,
             duration_ms=result.phase_0_time_s * 1000.0
         )
-
+        kit = LinuxAdaptationKit()
         # Start Phase 1 Function Processing
         p1_start = time.perf_counter()
-        semantic_compiler = SemanticCompiler(self.indices)
+        semantic_compiler = SemanticCompiler(self.indices, kit)
         
         for func in functions_to_compile:
             code_text = func.get("code") or func.get("content") or func.get("source") or ""
