@@ -15,6 +15,7 @@ from semantic_runtime.extractors.local_symbols import LocalSymbolExtractor
 from semantic_runtime.ontology.metadata import ExtractionReport
 from semantic_runtime.extractors.synchronization import SynchronizationExtractor
 from semantic_runtime.frontend.adaptation import AdaptationKit
+from semantic_runtime.extractors.rcu_extractor import RCUExtractor
 
 class SemanticCompiler:
     """
@@ -32,6 +33,7 @@ class SemanticCompiler:
             CallExtractor(),             # Pass 3: Extract standard calls
             SynchronizationExtractor(),  # Pass 4: Resolve synchronization primitives
             AssignmentExtractor(),       # Pass 5: Discover assignment semantics
+            RCUExtractor()               # Pass 6: Canonical capitalization match secured
             # MacroAliasExtractor(),     # Pass 5: Resolve macros
             # DispatchExtractor(),       # Pass 6: Resolve vtables
             # LockExtractor(),           # (Future Epic)

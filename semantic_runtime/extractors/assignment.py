@@ -1,5 +1,3 @@
-import importlib.resources
-from semantic_runtime.ontology.metadata import AssignmentKind
 import re
 import time
 from semantic_runtime.extractors.base import BaseExtractor
@@ -12,29 +10,26 @@ class AssignmentExtractor(BaseExtractor):
         start_time = time.perf_counter()
         events = []
         warnings = []
+
+        # Wipes out all single and multiline comment artifacts via the active kit configuration
+        clean_source = kit.clean_source_code(source)
+
+        assign_prof = kit.assignment_profile()
+        mutation_pattern = assign_prof.pattern
+        classify_kind = assign_prof.kind_classifier  # ◄── Call the delegate hook directly
         
-        # Pattern captures: LHS, Operator, and a basic lookahead guard to drop == comparisons
-        mutation_pattern = re.compile(
-            r'\b([a-zA-Z_][a-zA-Z0-9_\->.]*(?:\s*\[[^\]]+\])?)\s*(=|\+=|-=|\*=|/=|\|=|&=|\^=|\+\+|--)(?!=)([^;\n]*);?'
-        )
-        
-        for match in mutation_pattern.finditer(source):
+        for match in mutation_pattern.finditer(clean_source):
             target_expr = match.group(1).strip()
             operator = match.group(2).strip()
             
-            if "->" in target_expr or "." in target_expr:
-                kind = AssignmentKind.STRUCT_FIELD
-            elif "[" in target_expr:
-                kind = AssignmentKind.ARRAY_ELEMENT
-            else:
-                kind = AssignmentKind.LOCAL_VARIABLE
+            # 1. Evaluate kind via purely abstract functional delegation
+            kind = classify_kind(target_expr)
 
-
-
-            relative_line = source.count('\n', 0, match.start())
+            relative_line = clean_source.count('\n', 0, match.start())
             absolute_line = context.start_line + relative_line
             loc = SourceLocation(file=context.file_path, line=absolute_line)
             
+            # Root symbol tracking stays safe via basic identifier matching
             root_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)', target_expr)
             resolved = None
             if root_match:
@@ -42,10 +37,7 @@ class AssignmentExtractor(BaseExtractor):
                 if root_symbol in context.local_symbols:
                     resolved = root_symbol
 
-            # 1. Map out a clean string slug for the kind
-            kind_slug = "local" if kind == AssignmentKind.LOCAL_VARIABLE else "struct"            
-
-            # Form clean slug for URI compliance
+            kind_slug = "local" if kind == assign_prof.kind_classifier("var") else "struct"
             clean_expr = target_expr.replace('->', '_').replace('.', '_').replace('[', '_').replace(']', '')
             semantic_id = f"assign:{context.file_path}:{absolute_line}:{kind_slug}:{clean_expr}"
             
@@ -59,7 +51,6 @@ class AssignmentExtractor(BaseExtractor):
                 operator=operator
             ))
             
-        # 5. Commit mutations back to the shared timeline registry
         if events:
             context.semantic_constructs.extend(events)
             

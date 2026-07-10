@@ -12,7 +12,10 @@ class SynchronizationExtractor(BaseExtractor):
         start_time = time.perf_counter()
         events = []
         warnings = []
-        
+
+        # Wipes out all single and multiline comment artifacts via the active kit configuration
+        clean_source = kit.clean_source_code(source)
+
         sync_map = kit.synchronization_primitives()
         acquire_prims = sync_map.get("acquire", {})
         release_prims = sync_map.get("release", {})
@@ -23,14 +26,14 @@ class SynchronizationExtractor(BaseExtractor):
         if all_primitives:
             pattern = re.compile(r'\b(' + '|'.join(re.escape(p) for p in all_primitives) + r')\s*\(([^;]*)\)')
             
-            for match in pattern.finditer(source):
+            for match in pattern.finditer(clean_source):
                 primitive = match.group(1)
                 raw_expr = match.group(2).strip()
                 
                 expr_parts = [p.strip() for p in raw_expr.split(',')]
                 lock_expr = expr_parts[0] if expr_parts else raw_expr
                 
-                relative_line = source.count('\n', 0, match.start())
+                relative_line = clean_source.count('\n', 0, match.start())
                 absolute_line = context.start_line + relative_line
                 loc = SourceLocation(file=context.file_path, line=absolute_line)
                 

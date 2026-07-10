@@ -243,3 +243,38 @@ class SemanticRelationship:
     source_id: str  # The origin URI
     target_id: str  # The destination URI
 
+@dataclass(slots=True)
+class RcuReadLockMetadata(SemanticMetadata):
+    """Ontology Node: Entry point into an execution-protected reader section."""
+    api: str
+
+@dataclass(slots=True)
+class RcuReadUnlockMetadata(SemanticMetadata):
+    """Ontology Node: Exit point from an execution-protected reader section."""
+    api: str
+
+@dataclass(slots=True)
+class RcuDereferenceMetadata(SemanticMetadata):
+    """Ontology Node: Safe lockless pointer acquisition / context load."""
+    api: str
+    target_expression: str
+    resolved_symbol: Optional[str] = None
+
+@dataclass(slots=True)
+class RcuPublishMetadata(SemanticMetadata):
+    """Ontology Node: Concurrent safe pointer publication / memory barrier allocation."""
+    api: str
+    target_expression: str
+    resolved_symbol: Optional[str] = None
+
+@dataclass(slots=True)
+class RcuGracePeriodMetadata(SemanticMetadata):
+    """Ontology Node: Synchronous or asynchronous deferred recycling barrier."""
+    api: str
+
+@dataclass(slots=True)
+class RCUIterationMetadata(SemanticMetadata):
+    """Ontology Node: Loops traversing lockless RCU-protected data topologies."""
+    api: str
+    target_expression: str
+    resolved_symbol: Optional[str] = None

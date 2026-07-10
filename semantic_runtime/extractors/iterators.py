@@ -1,172 +1,72 @@
+import re
 import time
-from semantic_runtime.ontology.metadata import SemanticDomain
-from re import match
-from typing import Optional
-from semantic_runtime.semantic_model import (
-    FunctionSemanticContext,
-    LocalSymbol, CollectionDescriptor
+from semantic_runtime.extractors.base import BaseExtractor
+from semantic_runtime.ontology.metadata import (
+    SourceLocation, IterationMetadata, SemanticDomain, ExtractionReport
 )
-from semantic_runtime.compiler.indices import CompilerIndices
-from semantic_runtime.ontology.metadata import ExtractionReport, IterationMetadata, TraversalProperties, SourceLocation
-from semantic_runtime.parser import c_patterns
-#from semantic_runtime.compiler.semantic_ir import SemanticExtractor
 
-class IteratorExtractor():
-    """
-    Phase 1 Pass: Discovers control-flow loops (iterators) inside a function.
-    Delegates to Phase 0 (CompilerIndices) to resolve global collection semantics,
-    and to the local context to resolve cursor types.
-    """
-
-    def extract(
-        self,
-        source: str,
-        context: FunctionSemanticContext,
-        indices: CompilerIndices,
-        kit=None
-    ) -> ExtractionReport:
+class IteratorExtractor(BaseExtractor):
+    def extract(self, source: str, context, indices, kit) -> ExtractionReport:
         start_time = time.perf_counter()
         discovered = 0
         warnings = []
 
-        # We will define ITERATOR_PATTERN in c_patterns.py
-        # It matches: `macro_name(args_string)`
-        for match in c_patterns.ITERATOR_PATTERN.finditer(source):
-            try:
-                macro_name = match.group(1).strip()
-                args_string = match.group(2).strip()
+        # Wipes out all single and multiline comment artifacts via the active kit configuration
+        clean_source = kit.clean_source_code(source)
 
-                # 1. Parse raw arguments using the C-pattern heuristics
-                cursor_expr, coll_expr, member = c_patterns.parse_iterator_args(macro_name, args_string)
+        iter_prof = kit.iterator_profile()
+        pattern = iter_prof.pattern
 
-                # 2. Phase 1: Resolve the collection semantics
-                collection_desc = self._resolve_collection(coll_expr, indices)
+        for match in pattern.finditer(clean_source):
+            macro_name = match.group(1).strip()
+            raw_args = match.group(2).strip()
 
-                # 3. Phase 2: Resolve the cursor semantics
-                cursor_symbol = self._resolve_cursor(cursor_expr, context)
+            relative_line = clean_source.count('\n', 0, match.start())
+            absolute_line = context.start_line + relative_line
+            loc = SourceLocation(file=context.file_path, line=absolute_line)
 
-                # 4. Phase 3: Build the final semantic metadata
-                metadata = self._synthesize_iteration(
-                    context=context,
-                    macro=macro_name,
-                    coll_expr=coll_expr,
-                    cursor_expr=cursor_expr,
-                    member=member,
-                    collection_desc=collection_desc,
-                    cursor_symbol=cursor_symbol,
-                    match_offset=match.start(),
-                    source=source
-                )
+            # Fetch the declarative structural specification directly from the profile template
+            spec = iter_prof.specs.get(macro_name)
+            if not spec:
+                continue
 
-                context.semantic_constructs.append(metadata)
-                discovered += 1
+            # Parse arguments strictly using the structural positions provided by the kit
+            args = [arg.strip() for arg in raw_args.split(',')]
+            if not args:
+                continue
 
-            except Exception as e:
-                warnings.append(f"Failed to parse iterator {macro_name}: {str(e)}")
+            cursor_expr = args[spec.cursor_index] if spec.cursor_index < len(args) else "unknown"
+            coll_expr = args[spec.collection_index] if spec.collection_index < len(args) else ""
+
+            # Extract structured member fields if it's an entry wrapper
+            member_expr = args[-1] if "_entry" in macro_name and len(args) >= 3 else "next"
+
+            # Variable identity resolution tracking
+            resolved = None
+            if coll_expr:
+                symbol_match = re.search(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', coll_expr)
+                if symbol_match and symbol_match.group(1) in context.local_symbols:
+                    resolved = symbol_match.group(1)
+
+            action_id = f"iter:{context.file_path}:{absolute_line}:{macro_name}"
+
+            context.semantic_constructs.append(IterationMetadata(
+                semantic_id=action_id,
+                location=loc,
+                domain=SemanticDomain.ITERATION,
+                source_text=match.group(0).strip(),
+                macro=macro_name,
+                collection_name=coll_expr,
+                collection_family=spec.family,
+                collection_type="struct list_head",
+                declared_by=macro_name,
+                cursor_variable=cursor_expr,
+                element_type="Unknown",
+                member_field=member_expr,
+                properties=None,
+                collection_symbol_id=resolved
+            ))
+            discovered += 1
+
         duration = (time.perf_counter() - start_time) * 1000.0
-        return ExtractionReport(
-            extractor_name="IteratorExtractor",
-            discovered=discovered,
-            warnings=warnings,
-            duration_ms=duration
-        )
-
-    def _resolve_collection(
-        self,
-        collection_expression: str,
-        indices: CompilerIndices
-    ) -> Optional[CollectionDescriptor]:
-        """
-        Queries Phase 0 indices to see if this is a known global collection.
-        The index handles normalization (e.g., stripping '&').
-        """
-        if not collection_expression:
-            return None
-
-        return indices.collections.lookup(collection_expression)
-
-    def _resolve_cursor(
-        self,
-        cursor_expression: str,
-        context: FunctionSemanticContext
-    ) -> Optional[LocalSymbol]:
-        """
-        Queries the previously populated FunctionSemanticContext to find
-        the local variable acting as the cursor.
-        """
-        if not cursor_expression:
-            return None
-
-        # Clean the cursor name (e.g., if it has pointer math or casting,
-        # though kernel cursors are usually clean identifiers)
-        cursor_name = cursor_expression.strip().lstrip('*')
-        return context.lookup_local(cursor_name)
-
-    def _synthesize_iteration(
-        self,
-        context: FunctionSemanticContext,
-        macro: str,
-        coll_expr: str,
-        cursor_expr: str,
-        member: Optional[str],
-        collection_desc: Optional[CollectionDescriptor],
-        cursor_symbol: Optional[LocalSymbol],
-        match_offset: int,
-        source: str
-    ) -> IterationMetadata:
-        """
-        Synthesizes the resolved components into the final semantic snapshot.
-        """
-        # Fallback values if the descriptor wasn't found
-        coll_name = coll_expr.lstrip('&')
-        coll_family = "unknown"
-        coll_type = None
-        coll_symbol_id = None
-
-        # Enrich with Phase 0 data if available
-        declared_by = "Unknown"
-        if collection_desc:
-            coll_name = collection_desc.name
-            coll_family = collection_desc.collection_family
-            coll_type = collection_desc.type_name
-            coll_symbol_id = collection_desc.symbol_id if collection_desc.symbol_id else None
-            declared_by = collection_desc.declaration_macro or "Unknown" # Map Phase 0 definition
-
-        # Determine element type from the cursor (Phase 1 data)
-        element_type = None
-        if cursor_symbol:
-            element_type = cursor_symbol.type_info.type_name
-
-        # Calculate absolute line numbers using the unified context coordinates
-        relative_line = source.count('\n', 0, match_offset)
-        absolute_line = context.start_line + relative_line
-        
-        loc = SourceLocation(file=context.file_path, line=absolute_line)
-        action_id = f"iter:{context.file_path}:{absolute_line}:{macro}"
-
-        return IterationMetadata(
-            semantic_id=action_id,
-            location=loc,                       # <-- Replaces source_line=line_num
-            domain=SemanticDomain.ITERATION,
-            source_text=match.group(0).strip(),  # Optional but great for tracing raw macros
-            macro=macro,
-            collection_name=coll_name,
-            collection_expression=coll_expr,
-            collection_symbol_id=coll_symbol_id,
-            collection_family=coll_family,
-            collection_type=coll_type,
-            declared_by=declared_by,
-            element_type=element_type,
-            cursor_variable=cursor_expr,
-            member_field=member,
-            properties=self._decode_traversal_properties(macro)
-        )
-
-    def _decode_traversal_properties(self, macro: str) -> TraversalProperties:
-        """Derives standard traversal modifiers purely from the macro name."""
-        return TraversalProperties(
-            deletion_safe="_safe" in macro,
-            reverse="_reverse" in macro,
-            rcu_protected="_rcu" in macro,
-            continue_iteration="_continue" in macro or "_from" in macro
-        )
+        return ExtractionReport(self.__class__.__name__, discovered, duration, warnings)

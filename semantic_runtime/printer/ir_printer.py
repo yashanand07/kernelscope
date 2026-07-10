@@ -1,3 +1,9 @@
+from semantic_runtime.ontology.metadata import RcuReadUnlockMetadata
+from semantic_runtime.ontology.metadata import RcuReadLockMetadata
+from semantic_runtime.ontology.metadata import RcuDereferenceMetadata
+from semantic_runtime.ontology.metadata import RcuPublishMetadata
+from semantic_runtime.ontology.metadata import RcuGracePeriodMetadata
+from semantic_runtime.ontology.metadata import RCUIterationMetadata
 from semantic_runtime.ontology.metadata import SemanticDomain
 from semantic_runtime.ontology.metadata import AssignmentMetadata
 import time
@@ -151,3 +157,29 @@ class SemanticIRPrinter:
             print(f"Target Expression       : {event.target_expression}")
             print(f"Resolved Symbol         : {event.resolved_symbol or '<unresolved>'}")
             print(f"Assignment Kind         : {event.assignment_kind.value.upper()}")
+        elif isinstance(event, RcuReadLockMetadata):
+            print(f"API                     : {event.api}")
+            print(f"Action                  : ENTER READER PROTECTION")
+
+        elif isinstance(event, RcuReadUnlockMetadata):
+            print(f"API                     : {event.api}")
+            print(f"Action                  : EXIT READER PROTECTION")
+
+        elif isinstance(event, RcuDereferenceMetadata):
+            print(f"API                     : {event.api}")
+            print(f"Acquisition Target      : {event.target_expression}")
+            print(f"Resolved Root Symbol    : {event.resolved_symbol or '<unresolved>'}")
+
+        elif isinstance(event, RcuPublishMetadata):
+            print(f"API                     : {event.api}")
+            print(f"Publication Target      : {event.target_expression}")
+            print(f"Resolved Root Symbol    : {event.resolved_symbol or '<unresolved>'}")
+
+        elif isinstance(event, RcuGracePeriodMetadata):
+            print(f"API                     : {event.api}")
+            print(f"Action                  : BARRIER RECLAMATION BLOCK")
+        elif isinstance(event, RCUIterationMetadata):
+            print(f"API                     : {event.api}")
+            print(f"Action                  : CONCURRENT RCU TOPOLOGY TRAVERSAL")
+            print(f"Topology Target         : {event.target_expression}")
+            print(f"Resolved Root Symbol    : {event.resolved_symbol or '<unresolved>'}")
