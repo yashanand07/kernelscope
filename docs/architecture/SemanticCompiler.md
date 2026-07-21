@@ -65,11 +65,11 @@ Every semantic extraction pass must:
 
 ### Phase 0: Frontend Semantic Analysis `[✓ COMPLETE]`
 * **Objective:** Stream raw workspace assets, perform targeted noise filtration, isolate non-production artifacts, canonicalize framework-specific wrappers, and produce a stable semantic tag stream.
-* **Ontology Introduced:** 
+* **Ontology Introduced:**
 - Canonical Token Identity
 - Stable Global Coordinates
 - Adaptation-specific
-* **Primary Outputs:** 
+* **Primary Outputs:**
 - `NormalizedTag`
 - Compiler Telemetry
 - Canonical Tag Stream

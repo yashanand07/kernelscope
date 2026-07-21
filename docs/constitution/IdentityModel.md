@@ -109,6 +109,23 @@ The specific hashing algorithm is an implementation detail.
 
 ---
 
+## Canonical Identity Representation Invariant
+
+### Structural Layout
+A Canonical NodeID is a deterministic 64-bit opaque bit-array identifier.
+
+### Implementation Independence
+The specific representation of these 64 bits within memory spaces, network serialization layers, or persistence engines is strictly an internal
+runtime implementation detail.
+
+- The runtime layer may evaluate the bits as an unsigned integer (`uint64`), a signed integer (`int64`), or a raw binary token (`BLOB(8)`) depending on host platform constraints.
+- No compiler logic or comparison operation may rely on the arithmetic polarity (positive vs. negative signs) of an identifier.
+
+### Presentation Isolation
+The visual rendering of an identifier is handled exclusively by the `IdentityFormatter` layer. The formatter guarantees a uniform, predictable presentation string (e.g., unsigned text expression) for the debugger, shell, or user interface, completely abstracting the underlying storage encoding.
+
+---
+
 ## Identity Lifecycle
 
 Source Code

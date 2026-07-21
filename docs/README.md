@@ -17,12 +17,13 @@ docs/
 │   ├── DispatchReconstruction.md
 │   ├── MacroAlias.md
 │   ├── SemanticEdgePlan.md
+│   ├── StorageMigrationPlan.md
 │   └── ProjectGlossary.md
 │
 ├── engineering/    (Why was it built this way?)
 │   ├── EngineeringJournal.md
 │   ├── EngineeringBacklog.md
-│   ├── DesignDecisions.md
+│   ├── ArchitecturalDecisionLog.md
 │   ├── EngineeringCapabilityMatrix.md
 │   ├── EngineeringQuestions.md
 │   ├── EngineeringWorkflows.md
@@ -43,9 +44,9 @@ docs/
 │
 └── history/
     ├── kernelscope_2_ontology.md
-    ├── kernelscope_philosophy.md 
+    ├── kernelscope_philosophy.md
     ├── SemanticCompilerRoadmap.md
     └── semantic_edge_plan_V1.md
 
 
-     
+

@@ -112,7 +112,7 @@ def extract_provider_dispatch_edges(
             for provider_name, header_match in provider_blocks:
 
                 # The match.end() - 1 points exactly to the '{' character
-                start_idx = header_match.end() - 1 
+                start_idx = header_match.end() - 1
 
                 # STEP 2: Balanced capture
                 block = _extract_brace_block(clean_content, start_idx)

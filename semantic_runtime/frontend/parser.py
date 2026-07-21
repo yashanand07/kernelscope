@@ -11,29 +11,29 @@ class TagParser:
                 for line_content in f:
                     if line_content.startswith('!_TAG_') or not line_content.strip():
                         continue
-                    
+
                     if ';"\t' not in line_content:
                         continue
-                        
+
                     base_info, ext_info = line_content.split(';"\t', 1)
                     base_parts = base_info.split('\t')
                     if len(base_parts) < 3:
                         continue
-                        
+
                     symbol = base_parts[0]
                     tag_file = base_parts[1]
                     pattern = base_parts[2]
-                    
+
                     kind = ""
                     tag_line = 0
                     extensions = {}
-                    
+
                     ext_parts = ext_info.strip().split('\t')
-                    
+
                     # Capture unkeyed structural kind fields if available
                     if len(ext_parts) > 0 and ':' not in ext_parts[0]:
                         kind = ext_parts[0]
-                        
+
                     # Exhaustive key-value extension tracking
                     for part in ext_parts:
                         if ":" in part:
@@ -43,10 +43,10 @@ class TagParser:
                                 tag_line = int(v)
                             elif k == "kind":
                                 kind = v
-                                
+
                     if tag_line == 0 and "line" in extensions:
                         tag_line = int(extensions["line"])
-                        
+
                     if tag_line > 0:
                         tags.append(Tag(
                             symbol=symbol,

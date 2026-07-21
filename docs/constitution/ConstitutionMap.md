@@ -1,37 +1,65 @@
 # KernelScope Constitution Map
 
-This map outlines the dual-pillar core architecture of the KernelScope project, balancing strategic intent with engineering persistence.
+The KernelScope Constitution is organized into three complementary pillars.
+
+Each pillar answers a different architectural question.
 
 ```text
-                  ┌──────────────────────────────────────────────┐
-                  │          THE KERNELSCOPE CONSTITUTION        │
-                  └──────────────────────┬───────────────────────┘
-                                         │
-            ┌────────────────────────────┴────────────────────────────┐
-            ▼                                                         ▼
-  [THE STRATEGIC PILLAR]                                    [THE TECHNICAL PILLAR]
-  • EngineeringQuestions.md                                 - KnowledgeModel.md
-  • EngineeringWorkflows.md                                 - IdentityModel.md
-  • UIInteractionModel.md                                   - RelationshipModel.md
-                                                            - PersistenceModel.md
-                                                            - StorageOptimization.md
+                        ┌──────────────────────────────────────────────┐
+                        │          THE KERNELSCOPE CONSTITUTION        │
+                        └──────────────────────┬───────────────────────┘
+                                               │
+        ┌──────────────────────┬───────────────┴───────────────┬──────────────────────┐
+        ▼                      ▼                               ▼
+┌─────────────────┐    ┌────────────────────┐          ┌────────────────────┐
+│ Product Pillar  │    │ Engineering Pillar │          │ Technical Pillar   │
+└─────────────────┘    └────────────────────┘          └────────────────────┘
+│                     │                               │
+│ EngineeringProduct  │ EngineeringQuestions          │ IdentityModel
+│                     │ EngineeringCapabilities       │ KnowledgeModel
+│                     │ EngineeringSessionModel       │ RelationshipModel
+│                     │ EngineeringWorkflows          │ PersistenceModel
+│                     │ UIInteractionModel            │ StorageOptimization
+│                     │ EngineeringCapabilityMatrix   │
 ```
+
+---
+
 
 ## Pillar Descriptions
 
-### 1. The Strategic Pillar
+### 1. The Product Pillar
 
-Focuses on the user-facing value proposition, analyzing how human developers interact with the extracted insights.
+Defines **why KernelScope exists**.
 
-- **EngineeringQuestions.md**: Defines the actual core questions kernel developers need answers to.
+This pillar explains the engineering problem KernelScope solves and the philosophy guiding every architectural decision.
 
-- **EngineeringWorkflows.md**: Maps out the steps taken to transition from raw answers to engineering action.
 
-- **UIInteractionModel.md**: Dictates how these insights are rendered without adding visual friction.
+- **EngineeringProductModel.md**: Defines why KernelScope exists.
 
-### 2. The Technical Pillar
+### 2. The Engineering Pillar
 
-Governs the internal compiler layout, tracking how code expressions are ingested, normalized, and optimized inside the B-Tree databases.
+Defines **how engineers interact with KernelScope**.
+
+It describes the questions engineers ask, the capabilities KernelScope provides, the runtime execution model, engineering workflows, and the interaction model.
+
+- **EngineeringQuestions.md**: Defines what engineers need to know.
+
+- **EngineeringCapabilities.md**: Defines what KernelScope can do.
+
+- **EngineeringSessionModel.md**: Defines how KernelScope answers one engineering question.
+
+- **EngineeringWorkflows.md**: Defines how engineering knowledge becomes engineering decisions.
+
+- **UIInteractionModel.md**: Defines how engineers invoke capabilities and consume engineering context.
+
+- **EngineeringCapabilityMatrix.md**: Defines the implementation status and coverage of every engineering capability.
+
+### 3. The Technical Pillar
+
+Defines **how KernelScope is implemented**.
+
+This pillar specifies the deterministic compiler architecture responsible for extracting, organizing, persisting, and querying engineering knowledge.
 
 - **IdentityModel.md**: Formulates deterministic, immutable identity keys separate from storage mechanics.
 
@@ -42,3 +70,50 @@ Governs the internal compiler layout, tracking how code expressions are ingested
 - **PersistenceModel.md**: Coordinates how decoupled structural databases map onto physical storage assets.
 
 - **StorageOptimization.md**: Outlines the evidence-driven metrics used to keep the storage footprint under hardware limits.
+
+---
+
+## Constitutional Flow
+
+The three pillars operate together as a single architectural pipeline.
+
+```text
+Engineering Problem
+        │
+        ▼
+Engineering Question
+        │
+        ▼
+Engineering Capability
+        │
+        ▼
+Engineering Session
+        │
+        ▼
+Engineering Context
+        │
+        ▼
+Engineering Decision
+        │
+        ─────────────────────────────────────────────
+                       powered by
+        ─────────────────────────────────────────────
+        │
+        ▼
+Knowledge Model
+        │
+        ▼
+Relationship Model
+        │
+        ▼
+Persistence Layer
+        │
+        ▼
+Storage Engine
+```
+
+The Engineering Pillar defines **what** KernelScope delivers.
+
+The Technical Pillar defines **how** it delivers it.
+
+The Product Pillar defines **why** it exists.

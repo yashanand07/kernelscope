@@ -48,6 +48,148 @@ engineering decisions.
 
 ---
 
+# Engineering Context
+
+## Purpose
+
+Engineers do not understand an entire software system at once.
+
+They investigate one engineering question at a time.
+
+KernelScope mirrors this natural engineering process through **Engineering Contexts**.
+
+An Engineering Context is a temporary, bounded investigation created to answer one engineering question starting from one explicitly selected point within the software.
+
+The purpose of an Engineering Context is not to expose the complete semantic graph.
+
+Its purpose is to construct the smallest correct engineering context required for the engineer's current task.
+
+---
+
+## Engineering Context Lifecycle
+
+```text
+          Engineer Navigation
+                  │
+                  ▼
+          Anchor Established
+                  │
+                  ▼
+      Engineering Capability Selected
+                  │
+                  ▼
+        Engineering Context Created
+                  │
+                  ▼
+       Engineering Context Generated
+                  │
+                  ▼
+        Engineer Continues Navigation
+                  │
+                  ▼
+       Previous Session Destroyed
+```
+
+Engineering Contexts are ephemeral.
+
+They exist only for the duration of the current investigation.
+
+Changing the selected anchor or engineering capability creates a completely new session.
+
+No long-lived working graph is maintained.
+
+---
+
+## Anchors
+
+Every Engineering Context begins from an explicit anchor.
+
+KernelScope never attempts to infer an engineer's point of interest from natural language.
+
+Anchors are established through deliberate interaction with the software.
+
+Examples include:
+
+- Function
+- Variable
+- Structure Field
+- Type
+- Function Pointer
+- Lock Primitive
+- RCU Primitive
+- Workqueue
+- Timer
+- IRQ Handler
+- Graph Node
+- Search Result
+
+The selected anchor determines the scope of the investigation.
+
+---
+
+## Engineering Capabilities
+
+Once an anchor has been established, KernelScope presents the engineering capabilities applicable to that anchor.
+
+Examples include:
+
+- Understand Function
+- Trace Execution
+- Show Synchronization
+- Explore State Changes
+- Analyze Lifetime
+- Impact Analysis
+- Architecture Exploration
+- Review Changes
+- Generate AI Explanation
+
+An Engineering Capability defines **what** the engineer wishes to accomplish.
+
+It does not define **how** the semantic graph is traversed.
+
+---
+
+## Engineering Context
+
+An Engineering Context produces an Engineering Context.
+
+The Engineering Context is a localized view of the global knowledge graph containing only the semantic concepts and relationships required to answer the selected engineering question.
+
+The Engineering Context may contain:
+
+- Semantic Nodes
+- Relationships
+- Execution Paths
+- State Changes
+- Synchronization Boundaries
+- Ownership Chains
+- Quick Facts
+- Engineering Metrics
+
+The Engineering Context is intentionally bounded.
+
+It is not a copy of the global semantic graph.
+
+---
+
+## Design Principles
+
+Every Engineering Context:
+
+- answers exactly one engineering question
+- starts from exactly one explicit anchor
+- executes exactly one engineering capability
+- produces exactly one localized engineering context
+- is discarded after the investigation completes
+
+This architecture allows KernelScope to remain responsive even when operating over semantic graphs containing millions of concepts.
+
+It also aligns directly with Design Law 5:
+
+> KernelScope should optimize for the engineer's current problem, not the entire software system.
+
+---
+
 # Workflow 1 — Understand
 
 ## Inputs

@@ -34,14 +34,14 @@ class BPFNormalizer(TagNormalizerRule):
                     kind="function",
                     original_tag=tag
                 )
-                
+
         # Handle Category 3: Section Annotation Attributes (SEC)
         # We catch these here to prevent them from becoming corrupted function chunks.
         if tag.symbol == "SEC":
-            # For now, we drop section attributes from generating code chunks, 
+            # For now, we drop section attributes from generating code chunks,
             # reserving them for the AttributeExtractor stage in the future.
             return None
-            
+
         return None
 
 class ModuleNormalizer(TagNormalizerRule):

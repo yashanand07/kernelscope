@@ -24,7 +24,7 @@ class CallExtractor(BaseExtractor):
 
         # Assemble the dynamic exclusion barrier from keywords and macro sets
         exclusion_set = set(call_prof.control_keywords)
-        
+
         if kit:
             iter_prof = kit.iterator_profile()
             exclusion_set.update(iter_prof.specs.keys())
@@ -44,24 +44,24 @@ class CallExtractor(BaseExtractor):
                 for category in ["acquire", "release", "interrupt"]:
                     if category in sync_data:
                         exclusion_set.update(sync_data[category].keys())
-        
+
         # Strip the function signature boundary block
         body_start_idx = clean_source.find('{')
         if body_start_idx == -1:
             return ExtractionReport(extractor_name=self.__class__.__name__, discovered=0, warnings=["No function body scope found"])
-            
+
         function_body = clean_source[body_start_idx + 1:]
         body_offset_lines = clean_source[:body_start_idx + 1].count('\n')
-        
+
         # Sweep and evaluate calls purely using the kit's rules
         for match in call_pattern.finditer(function_body):
             try:
                 target_name = match.group(1).strip()
                 args_str = match.group(2).strip()
-                
+
                 if target_name in exclusion_set:
                     continue
-                    
+
                 relative_line = function_body.count('\n', 0, match.start())
                 absolute_line = context.start_line + body_offset_lines + relative_line
                 loc = SourceLocation(file=context.file_path, line=absolute_line)
@@ -69,7 +69,7 @@ class CallExtractor(BaseExtractor):
                 resolved_args = []
                 if args_str:
                     resolved_args.append(CallArgument(raw_expression=args_str))
-                
+
                 context.semantic_constructs.append(CallMetadata(
                     semantic_id=f"call:{context.file_path}:{absolute_line}:{target_name}",
                     location=loc,
@@ -79,9 +79,9 @@ class CallExtractor(BaseExtractor):
                     arguments=resolved_args
                 ))
                 discovered += 1
-                
+
             except Exception as e:
                 warnings.append(f"Line {context.start_line}: Failed to parse call token: {str(e)}")
-                
+
         duration = (time.perf_counter() - start_time) * 1000.0
         return ExtractionReport(self.__class__.__name__, discovered, duration, warnings)

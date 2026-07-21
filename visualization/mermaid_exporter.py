@@ -79,6 +79,6 @@ class MermaidGraphExporter:
             f.write(content)
 
         print(
-            f"✅ Mermaid graph exported to "
+            f" Mermaid graph exported to "
             f"{output_file}"
         )

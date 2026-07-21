@@ -152,7 +152,7 @@ class FunctionSemanticContext:
         self.start_line = start_line
         self.end_line = end_line
         # Ensure this attribute matches exactly what your runner and printers look for!
-        self.semantic_constructs: list = []  
+        self.semantic_constructs: list = []
         self.local_symbols: dict = {}
         self.relationships: list[SemanticRelationship] = []
 
@@ -183,7 +183,7 @@ class FunctionSemanticContext:
                 m.semantic_id
             )
         )
-        
+
         # Future-proofing placeholders
         # self.validate()
         # self.freeze()

@@ -1,3 +1,4 @@
+from enum import auto
 from typing import Optional
 from re import Pattern
 from enum import Enum
@@ -278,3 +279,20 @@ class RCUIterationMetadata(SemanticMetadata):
     api: str
     target_expression: str
     resolved_symbol: Optional[str] = None
+
+class RelationshipType(Enum):
+    PROTECTS = auto()     # Concurrency guards (Locks, RCU critical sections)
+    CONTAINS = auto()     # Structural loops encapsulating operations
+    WRITES = auto()       # Mutation ties back to local symbols
+    READS = auto()        # Value lookups tracking identifiers
+    DATA_FLOW = auto()    # Chronological register/data dependency steps
+    CO_LOCATED = auto()   # Multi-domain overlaps on the same code line
+
+# Relationship definitions and edge types
+@dataclass(slots=True)
+class SemanticRelationship:
+    """Represents a synthesized behavioral or structural dependency graph edge."""
+    relationship_id: str
+    type: RelationshipType
+    source_id: str
+    target_id: str

@@ -5,8 +5,8 @@ from semantic_runtime.frontend.adaptation import AdaptationKit
 class BaseExtractor(ABC):
     """
     Abstract Base Class for all KernelScope Semantic Compiler passes.
-    
-    Extractors are pure, deterministic algorithmic engines that implement 
+
+    Extractors are pure, deterministic algorithmic engines that implement
     behavioral compilation passes. They are completely decoupled from ecosystem-specific
     syntax constraints, which are dynamically queried from the injected Adaptation Kit.
     """

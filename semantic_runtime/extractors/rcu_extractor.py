@@ -20,20 +20,20 @@ class RCUExtractor(BaseExtractor):
         rcu_prof = kit.rcu_profile()
         # High performance cached token compiled match string evaluation
         pattern = rcu_prof.pattern
-        
+
         for match in pattern.finditer(clean_source):
             token = match.group(1)
             raw_expr = match.group(2).strip()
-            
+
             relative_line = clean_source.count('\n', 0, match.start())
             absolute_line = context.start_line + relative_line
             loc = SourceLocation(file=context.file_path, line=absolute_line)
-            
-            # TODO: Replace raw comma-splitting with a strict balancing parentheses parser 
+
+            # TODO: Replace raw comma-splitting with a strict balancing parentheses parser
             # to flawlessly handle nested call constructs like container_of(...)
             expr_parts = [p.strip() for p in raw_expr.split(',')]
             target_expr = expr_parts[0] if expr_parts else raw_expr
-            
+
             # Identifiers resolution tracking
             # TODO: Move this pattern into a top-level context.resolve_symbol(expr) method
             resolved = None
@@ -42,13 +42,13 @@ class RCUExtractor(BaseExtractor):
                 possible_sym = symbol_match.group(1)
                 if possible_sym in context.local_symbols:
                     resolved = possible_sym
-            
+
             # Emit telemetry warnings if pointer extraction leaves an orphaned expression
             if not resolved and token in (rcu_prof.dereference | rcu_prof.publish):
                 warnings.append(
                     f"Line {absolute_line}: Unresolved RCU tracking symbol expression reference context target '{target_expr}'"
                 )
-            
+
             semantic_token = target_expr.replace('->', '_').replace('.', '_').replace('[', '_').replace(']', '')
 
             # Semantic Class Mapping Engine
@@ -91,6 +91,6 @@ class RCUExtractor(BaseExtractor):
 
         if events:
             context.semantic_constructs.extend(events)
-            
+
         duration = (time.perf_counter() - start_time) * 1000.0
         return ExtractionReport(self.__class__.__name__, len(events), duration, warnings)

@@ -16,6 +16,7 @@ from semantic_runtime.ontology.metadata import ExtractionReport
 from semantic_runtime.extractors.synchronization import SynchronizationExtractor
 from semantic_runtime.frontend.adaptation import AdaptationKit
 from semantic_runtime.extractors.rcu_extractor import RCUExtractor
+from semantic_runtime.passes.relationship_builder import RelationshipBuilder
 
 class SemanticCompiler:
     """
@@ -49,15 +50,15 @@ class SemanticCompiler:
         ]
 
     def compile_function(
-        self, 
-        symbol_id: str, 
-        file_path: str, 
-        code: str, 
-        start_line: int = 1, 
+        self,
+        symbol_id: str,
+        file_path: str,
+        code: str,
+        start_line: int = 1,
         end_line: int = 1
     ) -> 'FunctionSemanticContext':
         """Compiles raw function string into a structured semantic frame with absolute coordinate bounds."""
-        
+
         # Instantiate the context with the global source tree offsets
         context = FunctionSemanticContext(
             symbol_id=symbol_id,
@@ -66,8 +67,8 @@ class SemanticCompiler:
             start_line=start_line,
             end_line=end_line
         )
-        
-        # Run your stateless extraction passes over the code...
+
+        # 1. Stateless Fact Extraction Phase (Phase 1 Extractor Passes)
         for extractor in self.pipeline:
             try:
                 events = extractor.extract(code, context, self.indices, self.kit)
@@ -78,18 +79,30 @@ class SemanticCompiler:
                     print(f"Function  : {context.symbol_id}")
                     print(f"Error     : {str(e)}")
                     print("-" * 60)
-                    traceback.print_exc(file=sys.stdout) # ◄── Forces Python to print the exact stack trace
+                    traceback.print_exc(file=sys.stdout)
                     print("-" * 60)
-                    sys.exit(1) # Halt immediately so you can fix it
+                    sys.exit(1)
                 else:
-                    # Log warning telemetry, skip extractor, keep compilation moving
                     context.warnings.append(
                         f"Extractor {extractor.__class__.__name__} failed on {context.symbol_id}: {str(e)}"
                     )
 
-        # 2. Structural Graph Handshake Phase
+        # 2. Structural Graph Handshake Phase (Phase 1.5 Context Synthesis & Relationship Building)
         for pass_ in self.post_pipeline:
-            pass_.run(context)
+            try:
+                # Clean, decoupled execution pass passing the framework profile kit
+                pass_.run(context, self.kit)
+            except Exception as e:
+                if app_config.runtime.fail_fast:
+                    print(f"\n[FATAL POST-PIPELINE CRASH]")
+                    print(f"Pass      : {pass_.__class__.__name__}")
+                    print(f"Function  : {context.symbol_id}")
+                    print(f"Error     : {str(e)}")
+                    sys.exit(1)
+                else:
+                    context.warnings.append(
+                        f"Post-Pipeline Pass {pass_.__class__.__name__} failed on {context.symbol_id}: {str(e)}"
+                    )
 
         return context
 

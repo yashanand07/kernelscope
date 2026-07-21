@@ -14,11 +14,11 @@ from semantic_runtime.frontend.profiles import (
 class AdaptationKit(ABC):
     """
     The universal ecosystem contract for KernelScope 2.0.
-    
-    Acts as an isolation gate. All framework-specific syntax variations, 
-    macro patterns, operational conventions, and symbol categories must be 
-    quarantined inside implementations of this class. 
-    
+
+    Acts as an isolation gate. All framework-specific syntax variations,
+    macro patterns, operational conventions, and symbol categories must be
+    quarantined inside implementations of this class.
+
     The Compiler Core consumes only this agnostic protocol interface.
     """
 

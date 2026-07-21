@@ -29,11 +29,19 @@ class IteratorMacroSpec:
     collection_index: int = 1
     family: str = "list"      # e.g., "list", "hlist_bl", "rbtree"
 
+# SynchronizationProfile
 @dataclass(slots=True)
 class SynchronizationProfile:
     """Ontology representation of concurrency and locking behavior."""
-    # # YASHTBD: Migrate SynchronizationExtractor raw dictionary lookup to this profile
     raw_data: dict
+
+    def is_acquire(self, primitive_name: str) -> bool:
+        """Determines if a primitive token maps to a locking acquisition entry."""
+        return primitive_name in self.raw_data.get("acquire", {})
+
+    def is_release(self, primitive_name: str) -> bool:
+        """Determines if a primitive token maps to a locking release exit."""
+        return primitive_name in self.raw_data.get("release", {})
 
 @dataclass(slots=True)
 class IteratorProfile:
@@ -62,23 +70,30 @@ class RcuProfile:
     publish: set[str] = field(default_factory=set)
     grace_period: set[str] = field(default_factory=set)
     iterators: set[str] = field(default_factory=set)
-
     pattern: re.Pattern = field(init=False)
 
     def __post_init__(self):
         """Compiles the monolithic domain parsing regex exactly once upon instantiation."""
         tokens = tuple(
-            self.read_lock | 
-            self.read_unlock | 
-            self.dereference | 
-            self.publish | 
+            self.read_lock |
+            self.read_unlock |
+            self.dereference |
+            self.publish |
             self.grace_period |
             self.iterators
         )
         if not tokens:
-            self.pattern = re.compile(r'(?!_ )') 
+            self.pattern = re.compile(r'(?!_ )')
         else:
             self.pattern = re.compile(r'\b(' + '|'.join(re.escape(t) for t in tokens) + r')\s*\(([^;]*)\)')
+
+    def is_reader_enter(self, token: str) -> bool:
+        """Determines if a macro token enters an execution-protected critical section."""
+        return token in self.read_lock
+
+    def is_reader_exit(self, token: str) -> bool:
+        """Determines if a macro token exits an execution-protected critical section."""
+        return token in self.read_unlock
 
 @dataclass(slots=True)
 class AssignmentProfile:

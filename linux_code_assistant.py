@@ -1588,7 +1588,7 @@ def main():
         # Optional: You can do a quick requests.get() here to ensure the server is up
         try:
             requests.get(f"{app_config.llm.ollama.endpoint}/api/tags", timeout=1)
-            print(f"✅ Connected to Ollama at {app_config.llm.ollama.endpoint}")
+            print(f"Connected to Ollama at {app_config.llm.ollama.endpoint}")
         except requests.exceptions.RequestException:
             print(f"\n[!] CANNOT CONNECT TO OLLAMA AT {app_config.llm.ollama.endpoint}")
             print("-" * 50)
@@ -1644,11 +1644,11 @@ def main():
         ):
             semantic_graph = ACTIVE_SEMANTIC_BUNDLE.semantic_graph
             symbol_code_index = ACTIVE_SEMANTIC_BUNDLE.symbol_code_index
-            print("✅ Reusing active semantic graph from session")
+            print("Reusing active semantic graph from session")
 
         elif semantic_ir_cache_valid(profile):
 
-           #print("✅ Loading semantic cache...")
+           #print("Loading semantic cache...")
             start = time.time()
             # semantic_graph = (
             #     SemanticGraph.load_semantic_ir(
@@ -1661,26 +1661,26 @@ def main():
             symbol_code_index = bundle.symbol_code_index
             ACTIVE_PROFILE = profile.subsystem_name
             ACTIVE_SEMANTIC_BUNDLE = bundle
-            print(f"✅ Semantic cache loaded in {time.time() - start:.2f} seconds")
+            print(f" Semantic cache loaded in {time.time() - start:.2f} seconds")
 
         else:
-            print("⚙️ Building semantic graphs...")
+            print("Building semantic graphs...")
             start = time.time()
             semantic_bundle = compile_semantic_ir(profile)
 
             semantic_graph = semantic_bundle.semantic_graph
             symbol_code_index = semantic_bundle.symbol_code_index
 
-            print(f"⚙️ Semantic graphs built in {time.time() - start:.2f} seconds")
+            print(f"Semantic graphs built in {time.time() - start:.2f} seconds")
 
             ACTIVE_PROFILE = profile.subsystem_name
             ACTIVE_SEMANTIC_BUNDLE = semantic_bundle
 
-            print("⚙️ Saving semantic graphs...")
+            print("Saving semantic graphs...")
             SemanticIRBundle.save_semantic_ir_bundle(
                 semantic_bundle,
             )
-            print("⚙️ Saving semantic graphs completed...")
+            print("Saving semantic graphs completed...")
 
 
         print("Semantic graph stats:")

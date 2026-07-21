@@ -204,7 +204,7 @@ Runtime-Constrained LLM Interpretation
 
 # High-Level Design Diagram (Mermaid)
 
-Here is a clean architectural map detailing the data flow from raw source code down to the presentation layer. 
+Here is a clean architectural map detailing the data flow from raw source code down to the presentation layer.
 
 ```mermaid
 graph TD

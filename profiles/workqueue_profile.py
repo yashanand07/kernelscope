@@ -92,7 +92,7 @@ WORKQUEUE_PROFILE = (
         provider_patterns=WORKQUEUE_PROVIDER_PATTERNS,
 
         valid_dispatch_operations={
-            "func", 
+            "func",
         },
 
         runtime_depth_limit=12,
